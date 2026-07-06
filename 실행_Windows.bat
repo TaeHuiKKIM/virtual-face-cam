@@ -17,8 +17,18 @@ if errorlevel 1 (
     exit /b
 )
 
-REM 의존성 설치 여부 확인 (pyvirtualcam import 시도)
-python -c "import pyvirtualcam, cv2, numpy, PIL" >nul 2>nul
+python -c "import sys; raise SystemExit(sys.version_info < (3, 10))" >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo [오류] Python 3.10 이상이 필요합니다.
+    echo https://www.python.org/downloads/ 에서 최신 Python을 설치하세요.
+    echo.
+    pause
+    exit /b
+)
+
+REM 의존성 설치 여부 확인
+python -c "import pyvirtualcam, numpy, PIL" >nul 2>nul
 if errorlevel 1 (
     echo 필요한 패키지를 설치합니다. 잠시만 기다려 주세요...
     python -m pip install -r requirements.txt

@@ -4,6 +4,8 @@
 Zoom, Teams, 브라우저, 얼굴 인식 프로그램 등에서 실제 웹캠처럼 선택해 사용할 수 있습니다.
 
 Windows · macOS · Linux 지원 ([pyvirtualcam](https://github.com/letmaik/pyvirtualcam) 기반).
+macOS에서 더블클릭 앱 형태가 필요하면 별도 저장소의
+[virtual-face-cam-mac](https://github.com/TaeHuiKKIM/virtual-face-cam-mac)을 사용하세요.
 
 | 대기 화면 | 실행 중 |
 |-----------|---------|
@@ -30,6 +32,7 @@ Windows · macOS · Linux 지원 ([pyvirtualcam](https://github.com/letmaik/pyvi
 
 > ⚠️ 어떤 방식이든 **1번의 가상카메라 드라이버 설치는 필수**입니다.
 > 드라이버는 OS에 등록되는 시스템 요소라 실행 파일에 포함할 수 없습니다.
+> Python으로 실행하는 경우 **Python 3.10 이상**이 필요합니다.
 
 ### A. pipx — 한 줄 설치 (권장, Mac/Win/Linux 공통)
 
@@ -64,6 +67,9 @@ pip install -r requirements.txt
 python virtual_cam.py face.jpg
 ```
 
+의존성은 `pyvirtualcam`, `numpy`, `pillow`만 사용합니다. 이전 버전에서 쓰던
+OpenCV 의존성은 macOS 설치 실패 가능성을 줄이기 위해 제거했습니다.
+
 ## 3. 실행
 
 ### GUI (버튼으로 켜고 끄기) — 추천
@@ -75,6 +81,17 @@ python gui.py
 
 이미지/폴더를 선택하고 **시작** 버튼을 누르면 가상 카메라가 켜지고,
 **중지**를 누르면 꺼집니다. 해상도·FPS·전환 간격도 창에서 조절할 수 있습니다.
+
+macOS에서 Homebrew Python을 쓰는 경우 `tkinter`가 별도 패키지라 GUI 실행이
+실패할 수 있습니다. 이때는 현재 Python 버전에 맞춰 설치하세요:
+
+```bash
+brew install python-tk@3.14   # 예: python3 --version 이 3.14.x인 경우
+brew install python-tk@3.13   # 예: python3 --version 이 3.13.x인 경우
+```
+
+더블클릭용 `실행_Mac.command`는 Python 3.10 이상과 Tkinter를 확인한 뒤
+`.venv-mac` 가상환경을 만들고 필요한 패키지만 설치합니다.
 
 ### CLI
 
@@ -117,7 +134,8 @@ python make_face.py   # face.jpg 생성
 
 - **가상 카메라를 시작할 수 없다** → 드라이버(OBS / v4l2loopback) 설치 여부 확인.
 - **다른 앱에 카메라가 안 보인다** → 해당 앱을 완전히 종료 후 다시 실행.
-- **macOS에서 권한 오류** → 시스템 설정 > 개인정보 보호 및 보안에서 확장 허용.
+- **macOS에서 권한 오류** → 시스템 설정 > 개인정보 보호 및 보안에서 OBS 가상 카메라 시스템 확장 허용.
+- **macOS에서 `No module named '_tkinter'`** → Homebrew Python에는 Tkinter가 빠져 있을 수 있습니다. `brew install python-tk@현재버전`을 설치하거나 macOS 전용 앱 저장소를 사용하세요.
 
 ## 라이선스
 

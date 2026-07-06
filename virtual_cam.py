@@ -4,30 +4,34 @@ Cross-platform: Windows, macOS, Linux (via pyvirtualcam).
 """
 import argparse
 import sys
-import time
 from pathlib import Path
 
-import cv2
 import numpy as np
 import pyvirtualcam
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 
 def fit_frame(img, width, height):
     """Resize keeping aspect ratio, letterboxed onto a width x height canvas (RGB)."""
-    h, w = img.shape[:2]
-    scale = min(width / w, height / h)
-    new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
-    # 확대할 땐 LANCZOS4(선명), 축소할 땐 AREA(모아레 방지)
-    interp = cv2.INTER_LANCZOS4 if scale > 1 else cv2.INTER_AREA
-    resized = cv2.resize(img, (new_w, new_h), interpolation=interp)
+    img = ImageOps.exif_transpose(img)
+    if img.mode == "RGBA":
+        background = Image.new("RGB", img.size, (0, 0, 0))
+        background.paste(img, mask=img.getchannel("A"))
+        img = background
+    else:
+        img = img.convert("RGB")
 
-    canvas = np.zeros((height, width, 3), dtype=np.uint8)
-    y0 = (height - new_h) // 2
+    scale = min(width / img.width, height / img.height)
+    new_w, new_h = max(1, int(img.width * scale)), max(1, int(img.height * scale))
+    resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    canvas = Image.new("RGB", (width, height), (0, 0, 0))
     x0 = (width - new_w) // 2
-    canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
-    return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+    y0 = (height - new_h) // 2
+    canvas.paste(resized, (x0, y0))
+    return np.asarray(canvas, dtype=np.uint8).copy()
 
 
 def load_frames(path, width, height):
@@ -44,11 +48,12 @@ def load_frames(path, width, height):
 
     frames = []
     for f in files:
-        img = cv2.imread(str(f))
-        if img is None:
+        try:
+            with Image.open(f) as img:
+                frames.append(fit_frame(img, width, height))
+        except (OSError, UnidentifiedImageError):
             print(f"  건너뜀 (열 수 없음): {f}", file=sys.stderr)
             continue
-        frames.append(fit_frame(img, width, height))
     if not frames:
         raise RuntimeError("사용할 수 있는 이미지가 없습니다.")
     return frames
