@@ -2,11 +2,33 @@
 
     python gui.py
 """
+import sys
 import threading
 from pathlib import Path
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+
+
+def enable_hidpi():
+    """Windows 고해상도 화면에서 흐릿하게 확대되는 것 방지."""
+    if sys.platform == "win32":
+        import ctypes
+        try:
+            # PER_MONITOR_AWARE_V2 (Win10 1703+)
+            ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
+            return
+        except Exception:
+            pass
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            return
+        except Exception:
+            pass
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 from PIL import Image, ImageTk
 
@@ -41,6 +63,13 @@ class App:
         self.error = None
         self._thumb = None
 
+        # 화면 배율에 맞춘 미리보기 크기 (96dpi 기준)
+        try:
+            self.scale = max(1.0, root.winfo_fpixels("1i") / 96.0)
+        except Exception:
+            self.scale = 1.0
+        self.pv = int(PREVIEW * self.scale)
+
         self._setup_style()
         self._build()
 
@@ -61,11 +90,13 @@ class App:
                     font=("Segoe UI Semibold", 16))
         s.configure("CardLabel.TLabel", background=CARD, foreground=TEXT,
                     font=("Segoe UI", 10))
-        s.configure("TButton", font=("Segoe UI", 10), padding=6)
-        s.configure("Accent.TButton", font=("Segoe UI Semibold", 11), padding=8)
-        s.configure("TEntry", fieldbackground="#33364a", foreground=TEXT)
-        s.configure("TSpinbox", fieldbackground="#33364a", foreground=TEXT,
-                    arrowsize=12)
+        s.configure("TEntry", fieldbackground="#33364a", foreground=TEXT,
+                    bordercolor="#3d4056", relief="flat")
+        s.configure("TSpinbox", fieldbackground="#33364a", background="#33364a",
+                    foreground=TEXT, arrowcolor=TEXT, arrowsize=11,
+                    bordercolor="#3d4056", relief="flat")
+        s.map("TSpinbox", fieldbackground=[("readonly", "#33364a")],
+              bordercolor=[("focus", ACCENT)])
 
     def _build(self):
         pad = 16
@@ -73,32 +104,35 @@ class App:
         wrap.grid()
 
         ttk.Label(wrap, text="🎥  Virtual Face Cam", style="Title.TLabel")\
-            .grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+            .grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(wrap, text="이미지를 가상 웹캠으로 출력합니다",
+                  foreground=MUTED).grid(row=1, column=0, columnspan=2,
+                                         sticky="w", pady=(2, 14))
 
         # 미리보기 카드
-        card = ttk.Frame(wrap, style="Card.TFrame", padding=12)
-        card.grid(row=1, column=0, columnspan=2, pady=(0, 12))
-        self.preview = tk.Canvas(card, width=PREVIEW, height=PREVIEW,
+        card = ttk.Frame(wrap, style="Card.TFrame", padding=14)
+        card.grid(row=2, column=0, columnspan=2, pady=(0, 12))
+        self.preview = tk.Canvas(card, width=self.pv, height=self.pv,
                                  bg="#33364a", highlightthickness=0)
         self.preview.grid(row=0, column=0)
         self._draw_placeholder()
 
         # 파일 선택 버튼
         btns = ttk.Frame(wrap)
-        btns.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 12))
-        ttk.Button(btns, text="🖼  이미지 선택", command=self.pick_file)\
-            .grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(btns, text="📁  폴더 선택", command=self.pick_dir)\
-            .grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        btns.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        self._flat_button(btns, "🖼  이미지 선택", self.pick_file)\
+            .grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self._flat_button(btns, "📁  폴더 선택", self.pick_dir)\
+            .grid(row=0, column=1, sticky="ew", padx=(5, 0))
         btns.columnconfigure(0, weight=1)
         btns.columnconfigure(1, weight=1)
 
         self.path_lbl = ttk.Label(wrap, text="선택된 파일 없음", foreground=MUTED)
-        self.path_lbl.grid(row=3, column=0, columnspan=2, sticky="w", pady=(0, 12))
+        self.path_lbl.grid(row=4, column=0, columnspan=2, sticky="w", pady=(0, 12))
 
         # 설정 행
-        opt = ttk.Frame(wrap, style="Card.TFrame", padding=10)
-        opt.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+        opt = ttk.Frame(wrap, style="Card.TFrame", padding=12)
+        opt.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, 14))
         self._spin(opt, "가로", self.width, 320, 3840, 0)
         self._spin(opt, "세로", self.height, 240, 2160, 2)
         self._spin(opt, "FPS", self.fps, 1, 60, 4)
@@ -109,12 +143,21 @@ class App:
             wrap, text="▶  시작", command=self.toggle,
             bg=GREEN, fg="#10261c", activebackground="#35b87d",
             font=("Segoe UI Semibold", 13), relief="flat", cursor="hand2",
-            height=2)
-        self.toggle_btn.grid(row=5, column=0, columnspan=2, sticky="ew")
+            bd=0, height=2)
+        self.toggle_btn.grid(row=6, column=0, columnspan=2, sticky="ew")
 
         # 상태
         self.status = ttk.Label(wrap, text="● 정지됨", foreground=RED)
-        self.status.grid(row=6, column=0, columnspan=2, pady=(10, 0))
+        self.status.grid(row=7, column=0, columnspan=2, pady=(12, 0))
+
+    def _flat_button(self, parent, text, command):
+        b = tk.Button(parent, text=text, command=command,
+                      bg="#33364a", fg=TEXT, activebackground="#454a63",
+                      activeforeground=TEXT, relief="flat", cursor="hand2",
+                      font=("Segoe UI", 10), bd=0, padx=10, pady=11)
+        b.bind("<Enter>", lambda e: b.config(bg="#3d4157"))
+        b.bind("<Leave>", lambda e: b.config(bg="#33364a"))
+        return b
 
     def _spin(self, parent, label, var, lo, hi, col, is_float=False):
         ttk.Label(parent, text=label, style="CardLabel.TLabel")\
@@ -126,7 +169,7 @@ class App:
 
     def _draw_placeholder(self):
         self.preview.delete("all")
-        self.preview.create_text(PREVIEW // 2, PREVIEW // 2,
+        self.preview.create_text(self.pv // 2, self.pv // 2,
                                  text="미리보기\n\n이미지를 선택하세요",
                                  fill=MUTED, font=("Segoe UI", 11),
                                  justify="center")
@@ -141,10 +184,10 @@ class App:
             p = imgs[0]
         try:
             im = Image.open(p)
-            im.thumbnail((PREVIEW, PREVIEW), Image.LANCZOS)
+            im.thumbnail((self.pv, self.pv), Image.LANCZOS)
             self._thumb = ImageTk.PhotoImage(im)
             self.preview.delete("all")
-            self.preview.create_image(PREVIEW // 2, PREVIEW // 2,
+            self.preview.create_image(self.pv // 2, self.pv // 2,
                                       image=self._thumb)
         except Exception:
             self._draw_placeholder()
@@ -226,7 +269,14 @@ class App:
 
 
 def main():
+    enable_hidpi()
     root = tk.Tk()
+    # 실제 DPI에 맞춰 Tk 위젯 스케일 조정 (선명 + 올바른 크기)
+    try:
+        dpi = root.winfo_fpixels("1i")
+        root.tk.call("tk", "scaling", dpi / 72.0)
+    except Exception:
+        pass
     App(root)
     root.mainloop()
 
