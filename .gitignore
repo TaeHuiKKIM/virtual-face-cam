@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+*.egg-info/
+.DS_Store
+face.jpg
+images/
+
+gui_preview.png

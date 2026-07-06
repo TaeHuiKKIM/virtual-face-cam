@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virtual-face-cam"
+version = "0.1.0"
+description = "정적 이미지를 가상 웹캠으로 출력하는 크로스플랫폼 도구"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "pyvirtualcam>=0.11.0",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "pillow>=10.0.0",
+]
+
+[project.scripts]
+virtual-face-cam = "virtual_cam:main"
+
+[project.gui-scripts]
+virtual-face-cam-gui = "gui:main"
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+
+[tool.setuptools]
+py-modules = ["virtual_cam", "make_face", "gui"]
