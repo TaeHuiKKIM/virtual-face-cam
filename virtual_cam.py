@@ -55,9 +55,11 @@ def load_frames(path, width, height):
 
 
 def main():
+    default_img = Path(__file__).resolve().parent / "assets" / "default_face.jpg"
     parser = argparse.ArgumentParser(
         description="정적 이미지(또는 이미지 폴더)를 가상 웹캠으로 출력합니다.")
-    parser.add_argument("path", help="이미지 파일 또는 이미지가 든 폴더 경로")
+    parser.add_argument("path", nargs="?", default=str(default_img),
+                        help="이미지 파일 또는 폴더 경로 (생략 시 기본 얼굴 이미지)")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--fps", type=int, default=30)

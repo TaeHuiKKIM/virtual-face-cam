@@ -10,6 +10,14 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 
+def resource_path(rel):
+    """번들(PyInstaller)/스크립트 양쪽에서 동작하는 리소스 경로."""
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        return Path(base) / rel
+    return Path(__file__).resolve().parent / rel
+
+
 def enable_hidpi():
     """Windows 고해상도 화면에서 흐릿하게 확대되는 것 방지."""
     if sys.platform == "win32":
@@ -72,6 +80,11 @@ class App:
 
         self._setup_style()
         self._build()
+
+        # 기본 이미지 자동 로드
+        default = resource_path("assets/default_face.jpg")
+        if default.exists():
+            self._set_path(str(default))
 
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 

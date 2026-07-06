@@ -24,10 +24,12 @@ def main():
         entry = "virtual_cam.py"
         window = "--console"
 
+    sep = ";" if platform.system() == "Windows" else ":"
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
         "--name", name,
+        "--add-data", f"assets{sep}assets",   # 기본 이미지 번들
         window,
         entry,
     ]
