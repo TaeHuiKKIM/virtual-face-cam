@@ -32,12 +32,15 @@ Finder에서 `Virtual Face Cam.app`을 오른쪽 클릭한 뒤 **열기**를 누
 3. **Start**를 누릅니다.
 4. Zoom, Teams, Chrome 같은 앱에서 `OBS Virtual Camera`를 선택합니다.
 
-## OBS 없이 쓰고 싶다면
+## OBS 없이 앱 자체만으로 쓰고 싶다면
 
-카메라 장치로 보일 필요가 없고, 이미지를 화면에 띄우거나 슬라이드쇼로 보여주기만
-하면 된다면 아래 앱이 더 단순합니다.
+OBS Virtual Camera 없이 앱 자체가 macOS 카메라 장치로 보이게 하려면 아래
+네이티브 macOS 프로젝트를 보세요.
 
 https://github.com/TaeHuiKKIM/virtual-face-cam-mac
+
+이 방식은 Swift + CoreMediaIO Camera Extension 기반이라 Apple Developer Team,
+App Group, macOS System Extension 승인이 필요합니다.
 
 ## 문제 해결
 
