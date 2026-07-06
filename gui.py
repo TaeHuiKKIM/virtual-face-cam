@@ -19,24 +19,31 @@ def resource_path(rel):
 
 
 def enable_hidpi():
-    """Windows 고해상도 화면에서 흐릿하게 확대되는 것 방지."""
-    if sys.platform == "win32":
-        import ctypes
-        try:
-            # PER_MONITOR_AWARE_V2 (Win10 1703+)
-            ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
+    """Windows 고해상도 화면에서 흐릿하게 확대되는 것 방지.
+
+    반환값(성공 여부)까지 확인해, 한 방법이 실패하면 다음 방법으로 넘어간다.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+    # 1) Per-Monitor-V2 (Win10 1703+). 핸들 인자는 반드시 포인터 크기로 전달.
+    try:
+        ctx = ctypes.c_void_p(-4)  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(ctx):
             return
-        except Exception:
-            pass
-        try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        pass
+    # 2) Per-Monitor (Win8.1+). 단순 int enum이라 핸들 문제 없음.
+    try:
+        if ctypes.windll.shcore.SetProcessDpiAwareness(2) == 0:  # S_OK
             return
-        except Exception:
-            pass
-        try:
-            ctypes.windll.user32.SetProcessDPIAware()
-        except Exception:
-            pass
+    except Exception:
+        pass
+    # 3) System-aware (구버전 폴백)
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
 
 from PIL import Image, ImageTk
 
