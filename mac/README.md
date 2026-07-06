@@ -3,6 +3,10 @@
 Mac에서 이미지나 이미지 폴더를 `OBS Virtual Camera`로 보내는 앱입니다.
 Tkinter를 쓰지 않고 브라우저 화면으로 조작합니다.
 
+## 실행 화면
+
+![Virtual Face Cam browser UI](../docs/mac-browser-ui.png)
+
 ## 제일 쉬운 순서
 
 ### 1. OBS Studio 먼저 설치

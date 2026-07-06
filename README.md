@@ -4,6 +4,19 @@
 Zoom, Teams, Chrome 같은 앱에서 카메라를 고를 때 `OBS Virtual Camera`를 선택하면
 내가 고른 이미지가 웹캠 화면처럼 보입니다.
 
+## 실행 화면
+
+![Virtual Face Cam macOS browser UI](docs/mac-browser-ui.png)
+
+## OBS 없이 Mac 앱 자체만으로 쓰고 싶다면
+
+OBS Virtual Camera를 설치하지 않고 `Virtual Face Cam`이 macOS 카메라 목록에 직접
+나오게 만드는 네이티브 Mac 버전은 아래 저장소를 보세요.
+
+https://github.com/TaeHuiKKIM/virtual-face-cam-mac
+
+이 방식은 Apple Developer Team, App Group, macOS System Extension 승인이 필요합니다.
+
 ## Mac에서 가장 쉬운 사용법
 
 ### 1. OBS Studio 설치

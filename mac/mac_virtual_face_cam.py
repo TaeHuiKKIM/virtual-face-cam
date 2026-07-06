@@ -185,176 +185,460 @@ HTML = r"""<!doctype html>
   <title>Virtual Face Cam</title>
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f4f6f3;
-      --panel: #ffffff;
-      --ink: #202322;
-      --muted: #69716d;
-      --line: #d9dfda;
-      --accent: #16745f;
-      --accent-ink: #ffffff;
-      --danger: #b4233c;
-      --stage: #1d2023;
+      color-scheme: dark;
+      --bg: #121417;
+      --surface: #1b1f24;
+      --panel: #20262b;
+      --panel-2: #272e35;
+      --ink: #f2f5f3;
+      --muted: #99a39f;
+      --line: #343d43;
+      --accent: #29d17d;
+      --accent-2: #1c8cff;
+      --warning: #f2a33a;
+      --danger: #ff5c7a;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      background: var(--bg);
+      background:
+        radial-gradient(circle at 12% 8%, rgba(41, 209, 125, 0.16), transparent 28%),
+        radial-gradient(circle at 86% 12%, rgba(28, 140, 255, 0.14), transparent 30%),
+        var(--bg);
       color: var(--ink);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
     }
-    main {
+    button,
+    input {
+      font: inherit;
+    }
+    .shell {
       min-height: 100vh;
       display: grid;
-      grid-template-columns: minmax(280px, 360px) 1fr;
+      grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
     }
-    aside {
-      background: var(--panel);
-      border-right: 1px solid var(--line);
-      padding: 22px;
+    .sidebar {
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(24, 29, 33, 0.84);
+      backdrop-filter: blur(24px);
+      padding: 24px;
       display: flex;
       flex-direction: column;
       gap: 18px;
     }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      min-width: 0;
+    }
+    .logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent), #17b6d4);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 12px 30px rgba(41, 209, 125, 0.24);
+      flex: 0 0 auto;
+    }
+    .logo::before {
+      content: "";
+      width: 23px;
+      height: 16px;
+      border: 3px solid #fff;
+      border-radius: 5px;
+      box-shadow: 13px 0 0 -5px #fff;
+    }
     h1 {
       margin: 0;
-      font-size: 22px;
-      line-height: 1.2;
+      font-size: 21px;
+      line-height: 1.16;
       letter-spacing: 0;
     }
     p {
-      margin: 6px 0 0;
+      margin: 4px 0 0;
       color: var(--muted);
       line-height: 1.45;
-      font-size: 14px;
-    }
-    label {
-      display: block;
-      margin-bottom: 6px;
-      color: #38413d;
       font-size: 13px;
-      font-weight: 600;
     }
-    input[type="file"],
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .mini-card,
+    .control-card,
+    .loaded-card,
+    .note-card {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.045);
+      border-radius: 14px;
+    }
+    .mini-card {
+      padding: 13px;
+      min-width: 0;
+    }
+    .eyebrow {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-bottom: 4px;
+    }
+    .mini-card strong,
+    .loaded-card strong,
+    .note-card strong {
+      display: block;
+      font-size: 14px;
+      line-height: 1.25;
+    }
+    .control-card {
+      padding: 14px;
+    }
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .section-title h2 {
+      margin: 0;
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+    .file-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .drop-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .drop-zone {
+      min-height: 92px;
+      border: 1px dashed rgba(255, 255, 255, 0.18);
+      border-radius: 12px;
+      padding: 13px;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.04);
+      transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+    }
+    .drop-zone:hover {
+      background: rgba(255, 255, 255, 0.07);
+      border-color: rgba(41, 209, 125, 0.72);
+      transform: translateY(-1px);
+    }
+    .drop-zone strong {
+      display: block;
+      font-size: 14px;
+      margin-top: 7px;
+    }
+    .drop-zone small {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      line-height: 1.3;
+    }
+    .icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: rgba(41, 209, 125, 0.14);
+      color: var(--accent);
+      font-weight: 900;
+    }
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    label.input-label {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
     input[type="number"] {
       width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fbfcfb;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 10px;
+      background: rgba(9, 12, 14, 0.64);
       color: var(--ink);
-      font: inherit;
-      padding: 9px 10px;
+      padding: 10px 11px;
+      outline: none;
     }
-    .grid {
+    input[type="number"]:focus {
+      border-color: rgba(28, 140, 255, 0.86);
+      box-shadow: 0 0 0 3px rgba(28, 140, 255, 0.16);
+    }
+    .actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
     button {
       border: 0;
-      border-radius: 6px;
-      min-height: 40px;
+      border-radius: 11px;
+      min-height: 43px;
       padding: 0 14px;
-      background: #e7ece8;
+      background: rgba(255, 255, 255, 0.09);
       color: var(--ink);
-      font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-weight: 750;
       cursor: pointer;
+      transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
     }
-    button.primary { background: var(--accent); color: var(--accent-ink); }
-    button.danger { background: var(--danger); color: white; }
-    button:disabled { cursor: not-allowed; opacity: 0.55; }
-    .actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
+    button:hover { transform: translateY(-1px); filter: brightness(1.08); }
+    button:disabled { cursor: not-allowed; opacity: 0.55; transform: none; }
+    button.primary {
+      background: linear-gradient(135deg, var(--accent), #17b6d4);
+      color: #06120d;
     }
-    .stage {
-      background: var(--stage);
-      min-width: 0;
-      display: grid;
-      grid-template-rows: 1fr auto;
-    }
-    .preview {
-      min-height: 360px;
-      display: grid;
-      place-items: center;
-      padding: 28px;
-    }
-    .preview img {
-      max-width: min(860px, 100%);
-      max-height: min(72vh, 720px);
-      object-fit: contain;
-      background: #000;
-      border: 1px solid #34393f;
-    }
-    .empty {
-      width: min(620px, 100%);
-      aspect-ratio: 16 / 9;
-      border: 1px dashed #697078;
-      display: grid;
-      place-items: center;
-      color: #aab1aa;
-      text-align: center;
-      padding: 20px;
-    }
-    .status {
-      border-top: 1px solid #34393f;
-      color: #d8ddd8;
-      padding: 14px 18px;
-      min-height: 54px;
-      font-size: 14px;
-      line-height: 1.4;
+    button.danger { background: rgba(255, 92, 122, 0.18); color: #ffdce4; }
+    .loaded-card,
+    .note-card {
+      padding: 14px;
     }
     .list {
+      margin-top: 8px;
       color: var(--muted);
       font-size: 13px;
       line-height: 1.45;
       word-break: break-word;
     }
-    @media (max-width: 760px) {
-      main { grid-template-columns: 1fr; }
-      aside { border-right: 0; border-bottom: 1px solid var(--line); }
-      .preview { min-height: 260px; }
+    .stage {
+      min-width: 0;
+      padding: 34px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 22px;
+    }
+    .stage-header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .stage-header h2 {
+      margin: 0;
+      font-size: clamp(34px, 4vw, 54px);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+    .stage-header p {
+      font-size: 15px;
+      margin-top: 10px;
+    }
+    .pill-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 0 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--muted);
+    }
+    .dot.ready { background: var(--accent); box-shadow: 0 0 18px rgba(41, 209, 125, 0.7); }
+    .dot.error { background: var(--danger); }
+    .preview-shell {
+      min-height: 390px;
+      display: grid;
+      place-items: center;
+    }
+    .preview {
+      width: min(980px, 100%);
+      aspect-ratio: 16 / 9;
+      border-radius: 28px;
+      background: #030405;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+      display: grid;
+      place-items: center;
+    }
+    .preview::before,
+    .preview::after {
+      position: absolute;
+      top: 18px;
+      z-index: 2;
+      color: rgba(255, 255, 255, 0.76);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .preview::before { content: "OBS Virtual Camera"; left: 22px; }
+    .preview::after { content: "1280 x 720"; right: 22px; }
+    .preview img {
+      width: clamp(140px, 34vw, 520px);
+      height: auto;
+      max-width: calc(100% - 36px);
+      object-fit: contain;
+      background: #000;
+    }
+    .empty {
+      text-align: center;
+      color: rgba(255, 255, 255, 0.72);
+      display: grid;
+      gap: 12px;
+      place-items: center;
+      padding: 22px;
+    }
+    .empty-mark {
+      width: 90px;
+      height: 90px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.09);
+      display: grid;
+      place-items: center;
+      color: rgba(255, 255, 255, 0.68);
+      font-size: 42px;
+      font-weight: 800;
+    }
+    .empty strong {
+      font-size: 20px;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .metric {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.055);
+      padding: 15px;
+      min-width: 0;
+    }
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+    .metric strong {
+      display: block;
+      font-size: 18px;
+      overflow-wrap: anywhere;
+    }
+    .status {
+      min-height: 48px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.055);
+      color: var(--muted);
+      padding: 14px 16px;
+      font-size: 14px;
+      line-height: 1.35;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    @media (max-width: 880px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+      .stage { padding: 24px; }
+      .stage-header { align-items: flex-start; flex-direction: column; }
+      .pill-row { justify-content: flex-start; }
+      .metrics { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-<main>
-  <aside>
-    <section>
-      <h1>Virtual Face Cam</h1>
-      <p>Upload one or more images, then send them to OBS Virtual Camera.</p>
+<main class="shell">
+  <aside class="sidebar">
+    <section class="brand">
+      <div class="logo" aria-hidden="true"></div>
+      <div>
+        <h1>Virtual Face Cam</h1>
+        <p>Send still images to OBS Virtual Camera.</p>
+      </div>
     </section>
 
-    <section>
-      <label for="files">Images</label>
-      <input id="files" type="file" accept="image/*" multiple>
-      <p id="fileCount">No images selected.</p>
+    <section class="status-grid" aria-label="Current output">
+      <div class="mini-card">
+        <span class="eyebrow">Camera</span>
+        <strong>OBS Virtual Camera</strong>
+      </div>
+      <div class="mini-card">
+        <span class="eyebrow">Output</span>
+        <strong>720p / 30 FPS</strong>
+      </div>
     </section>
 
-    <section>
-      <label for="folder">Folder</label>
-      <input id="folder" type="file" accept="image/*" multiple webkitdirectory>
+    <section class="control-card">
+      <div class="section-title">
+        <h2>Source</h2>
+        <span class="eyebrow" id="fileCount">No images selected</span>
+      </div>
+      <div class="drop-row">
+        <input class="file-input" id="files" type="file" accept="image/*" multiple>
+        <label class="drop-zone" for="files">
+          <span class="icon">+</span>
+          <strong>Images</strong>
+          <small>Pick one or more files</small>
+        </label>
+
+        <input class="file-input" id="folder" type="file" accept="image/*" multiple webkitdirectory>
+        <label class="drop-zone" for="folder">
+          <span class="icon">/</span>
+          <strong>Folder</strong>
+          <small>Cycle through a folder</small>
+        </label>
+      </div>
       <p id="folderCount">No folder selected.</p>
     </section>
 
-    <section class="grid">
-      <div>
-        <label for="width">Width</label>
-        <input id="width" type="number" min="320" max="3840" value="1280">
+    <section class="control-card">
+      <div class="section-title">
+        <h2>Frame Settings</h2>
+        <span class="eyebrow">Fit mode</span>
       </div>
-      <div>
-        <label for="height">Height</label>
-        <input id="height" type="number" min="240" max="2160" value="720">
-      </div>
-      <div>
-        <label for="fps">FPS</label>
-        <input id="fps" type="number" min="1" max="60" value="30">
-      </div>
-      <div>
-        <label for="interval">Interval</label>
-        <input id="interval" type="number" min="0.5" max="60" step="0.5" value="3">
+      <div class="settings-grid">
+        <div>
+          <label class="input-label" for="width">Width</label>
+          <input id="width" type="number" min="320" max="3840" value="1280">
+        </div>
+        <div>
+          <label class="input-label" for="height">Height</label>
+          <input id="height" type="number" min="240" max="2160" value="720">
+        </div>
+        <div>
+          <label class="input-label" for="fps">FPS</label>
+          <input id="fps" type="number" min="1" max="60" value="30">
+        </div>
+        <div>
+          <label class="input-label" for="interval">Interval</label>
+          <input id="interval" type="number" min="0.5" max="60" step="0.5" value="3">
+        </div>
       </div>
     </section>
 
@@ -365,21 +649,57 @@ HTML = r"""<!doctype html>
       <button id="refresh">Refresh</button>
     </section>
 
-    <section>
-      <label>Loaded images</label>
-      <div id="loaded" class="list">None</div>
+    <section class="loaded-card">
+      <span class="eyebrow">Loaded images</span>
+      <strong id="loadedTitle">None</strong>
+      <div id="loaded" class="list">Upload images to prepare the camera feed.</div>
     </section>
 
-    <section>
-      <p>OBS Studio 30 or later must be installed once so macOS registers the virtual camera system extension.</p>
+    <section class="note-card">
+      <span class="eyebrow">Setup note</span>
+      <strong>OBS is required once</strong>
+      <p>Install OBS Studio, start its virtual camera once, then choose OBS Virtual Camera in Zoom, Teams, Chrome, or FaceTime.</p>
     </section>
   </aside>
 
   <section class="stage">
-    <div class="preview" id="preview">
-      <div class="empty">Select an image to preview it here.</div>
+    <header class="stage-header">
+      <div>
+        <h2>Live Source</h2>
+        <p>Preview the exact image frame that will be sent to your virtual camera.</p>
+      </div>
+      <div class="pill-row">
+        <span class="pill"><span class="dot" id="statusDot"></span><span id="stateLabel">Stopped</span></span>
+        <span class="pill" id="sourceLabel">No source</span>
+      </div>
+    </header>
+
+    <div class="preview-shell">
+      <div class="preview" id="preview">
+        <div class="empty">
+          <div class="empty-mark">+</div>
+          <strong>No image selected</strong>
+          <span>Choose an image or folder to prepare the camera source.</span>
+        </div>
+      </div>
     </div>
-    <div class="status" id="status">Stopped</div>
+
+    <section class="metrics" aria-label="Output settings">
+      <div class="metric">
+        <span>Resolution</span>
+        <strong id="resolutionMetric">1280 x 720</strong>
+      </div>
+      <div class="metric">
+        <span>Frame Rate</span>
+        <strong id="fpsMetric">30 FPS</strong>
+      </div>
+      <div class="metric">
+        <span>Camera Name</span>
+        <strong>OBS Virtual Camera</strong>
+      </div>
+    </section>
+
+    <div class="status" id="status"><span class="dot"></span><span>Stopped</span></div>
   </section>
 </main>
 
@@ -390,10 +710,18 @@ const fileCount = document.getElementById("fileCount");
 const folderCount = document.getElementById("folderCount");
 const preview = document.getElementById("preview");
 const statusEl = document.getElementById("status");
+const statusDot = document.getElementById("statusDot");
+const stateLabel = document.getElementById("stateLabel");
+const sourceLabel = document.getElementById("sourceLabel");
 const loaded = document.getElementById("loaded");
+const loadedTitle = document.getElementById("loadedTitle");
+const resolutionMetric = document.getElementById("resolutionMetric");
+const fpsMetric = document.getElementById("fpsMetric");
 
-function setStatus(message) {
-  statusEl.textContent = message;
+function setStatus(message, tone = "idle") {
+  statusEl.innerHTML = `<span class="dot ${tone === "running" ? "ready" : tone === "error" ? "error" : ""}"></span><span>${message}</span>`;
+  statusDot.className = `dot ${tone === "running" ? "ready" : tone === "error" ? "error" : ""}`;
+  stateLabel.textContent = tone === "running" ? "Running" : tone === "error" ? "Needs attention" : "Stopped";
 }
 
 async function api(path, options = {}) {
@@ -405,17 +733,32 @@ async function api(path, options = {}) {
 
 files.addEventListener("change", () => {
   const list = Array.from(files.files || []);
-  fileCount.textContent = list.length ? `${list.length} selected` : "No images selected.";
-  if (list.length) folder.value = "";
+  fileCount.textContent = list.length ? `${list.length} selected` : "No images selected";
+  if (list.length) {
+    folder.value = "";
+    folderCount.textContent = "No folder selected.";
+  }
   showPreview(list);
 });
 
 folder.addEventListener("change", () => {
   const list = Array.from(folder.files || []);
   folderCount.textContent = list.length ? `${list.length} selected from folder` : "No folder selected.";
-  if (list.length) files.value = "";
+  if (list.length) {
+    files.value = "";
+    fileCount.textContent = `${list.length} selected`;
+  }
   showPreview(list);
 });
+
+["width", "height", "fps"].forEach(id => {
+  document.getElementById(id).addEventListener("input", syncMetrics);
+});
+
+function syncMetrics() {
+  resolutionMetric.textContent = `${document.getElementById("width").value} x ${document.getElementById("height").value}`;
+  fpsMetric.textContent = `${document.getElementById("fps").value} FPS`;
+}
 
 function selectedFiles() {
   const direct = Array.from(files.files || []);
@@ -423,28 +766,32 @@ function selectedFiles() {
 }
 
 function showPreview(list) {
-  if (list[0]) {
-    const url = URL.createObjectURL(list[0]);
-    preview.innerHTML = "";
-    const img = document.createElement("img");
-    img.onload = () => URL.revokeObjectURL(url);
-    img.src = url;
-    preview.appendChild(img);
-  }
+  if (!list[0]) return;
+  const url = URL.createObjectURL(list[0]);
+  preview.innerHTML = "";
+  const img = document.createElement("img");
+  img.onload = () => URL.revokeObjectURL(url);
+  img.src = url;
+  preview.appendChild(img);
+  sourceLabel.textContent = list.length === 1 ? list[0].name : `${list.length} images`;
 }
 
 document.getElementById("upload").addEventListener("click", async () => {
   const list = selectedFiles();
-  if (!list.length) return setStatus("Choose one or more images first.");
+  if (!list.length) {
+    setStatus("Choose one or more images first.", "error");
+    return;
+  }
   const form = new FormData();
   list.forEach(file => form.append("files", file, file.name));
   setStatus("Uploading images...");
   try {
     const data = await api("/api/upload", { method: "POST", body: form });
+    loadedTitle.textContent = `${data.count} image(s) ready`;
     loaded.textContent = data.names.join(", ");
     setStatus(`${data.count} image(s) loaded.`);
   } catch (err) {
-    setStatus(err.message);
+    setStatus(err.message, "error");
   }
 });
 
@@ -462,9 +809,9 @@ document.getElementById("start").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    setStatus(`Running: ${data.device || "OBS Virtual Camera"}`);
+    setStatus(`Running: ${data.device || "OBS Virtual Camera"}`, "running");
   } catch (err) {
-    setStatus(err.message);
+    setStatus(err.message, "error");
   }
 });
 
@@ -478,19 +825,21 @@ document.getElementById("refresh").addEventListener("click", refresh);
 async function refresh() {
   try {
     const data = await api("/api/status");
-    loaded.textContent = data.imageCount ? data.imageNames.join(", ") : "None";
+    loadedTitle.textContent = data.imageCount ? `${data.imageCount} image(s) ready` : "None";
+    loaded.textContent = data.imageCount ? data.imageNames.join(", ") : "Upload images to prepare the camera feed.";
     if (data.running) {
-      setStatus(`Running: ${data.device || "OBS Virtual Camera"}`);
+      setStatus(`Running: ${data.device || "OBS Virtual Camera"}`, "running");
     } else if (data.error) {
-      setStatus(data.error);
+      setStatus(data.error, "error");
     } else {
       setStatus("Stopped");
     }
   } catch (err) {
-    setStatus(err.message);
+    setStatus(err.message, "error");
   }
 }
 
+syncMetrics();
 setInterval(refresh, 1500);
 refresh();
 </script>
