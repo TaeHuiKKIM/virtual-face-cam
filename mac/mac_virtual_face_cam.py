@@ -310,6 +310,10 @@ HTML = r"""<!doctype html>
       --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
     }
     * { box-sizing: border-box; }
+    html,
+    body {
+      height: 100%;
+    }
     body {
       margin: 0;
       min-height: 100vh;
@@ -780,6 +784,172 @@ HTML = r"""<!doctype html>
       .pill-row { justify-content: flex-start; }
       .metrics { grid-template-columns: 1fr; }
       .live-dock { grid-template-columns: 1fr; }
+    }
+    @media (min-width: 881px) and (max-height: 920px) {
+      body {
+        overflow: hidden;
+      }
+      .shell {
+        height: 100vh;
+        min-height: 0;
+        grid-template-columns: minmax(300px, 365px) minmax(0, 1fr);
+        overflow: hidden;
+      }
+      .sidebar {
+        min-height: 0;
+        overflow: hidden;
+        padding: 16px;
+        gap: 10px;
+      }
+      .logo {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+      }
+      .logo::before {
+        width: 20px;
+        height: 13px;
+        border-width: 3px;
+      }
+      h1 { font-size: 19px; }
+      p { font-size: 12px; line-height: 1.35; }
+      .mini-card,
+      .loaded-card,
+      .note-card,
+      .control-card {
+        border-radius: 12px;
+      }
+      .mini-card,
+      .control-card,
+      .loaded-card {
+        padding: 10px;
+      }
+      .note-card {
+        display: none;
+      }
+      .eyebrow {
+        font-size: 10px;
+        margin-bottom: 3px;
+      }
+      .mini-card strong,
+      .loaded-card strong {
+        font-size: 13px;
+      }
+      .section-title {
+        margin-bottom: 8px;
+      }
+      .drop-row,
+      .settings-grid,
+      .actions {
+        gap: 8px;
+      }
+      .drop-zone {
+        min-height: 70px;
+        padding: 10px;
+      }
+      .drop-zone strong {
+        font-size: 13px;
+        margin-top: 5px;
+      }
+      .drop-zone small {
+        font-size: 12px;
+        line-height: 1.25;
+      }
+      .icon {
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+      }
+      label.input-label {
+        font-size: 10px;
+        margin-bottom: 4px;
+      }
+      input[type="number"] {
+        padding: 8px 10px;
+      }
+      button {
+        min-height: 38px;
+      }
+      .list {
+        margin-top: 5px;
+        font-size: 12px;
+        line-height: 1.3;
+      }
+      .stage {
+        height: 100vh;
+        min-height: 0;
+        padding: 20px;
+        gap: 12px;
+        overflow: hidden;
+      }
+      .stage-header {
+        align-items: center;
+      }
+      .stage-header h2 {
+        font-size: 38px;
+      }
+      .stage-header p {
+        display: none;
+      }
+      .pill {
+        min-height: 34px;
+        font-size: 12px;
+      }
+      .preview-shell {
+        min-height: 0;
+      }
+      .preview {
+        width: min(850px, calc((100vh - 340px) * 16 / 9), 100%);
+        border-radius: 22px;
+      }
+      .preview::before,
+      .preview::after {
+        top: 14px;
+        font-size: 11px;
+      }
+      .preview::before { left: 18px; }
+      .preview::after { right: 18px; }
+      body[data-state="running"] .preview::after {
+        top: 12px;
+        right: 14px;
+      }
+      .preview img {
+        width: clamp(120px, 28vw, 440px);
+      }
+      .metrics {
+        gap: 10px;
+      }
+      .metric {
+        border-radius: 13px;
+        padding: 10px 12px;
+      }
+      .metric span {
+        font-size: 11px;
+      }
+      .metric strong {
+        font-size: 16px;
+      }
+      .status {
+        min-height: 40px;
+        border-radius: 13px;
+        padding: 9px 12px;
+        font-size: 13px;
+      }
+      .live-dock {
+        bottom: 0;
+        grid-template-columns: minmax(0, 1fr) 180px 92px;
+        border-radius: 14px;
+        padding: 9px;
+        gap: 10px;
+      }
+      .live-dock strong {
+        font-size: 14px;
+      }
+      .live-dock button {
+        min-height: 46px;
+        font-size: 15px;
+        border-radius: 11px;
+      }
     }
   </style>
 </head>
