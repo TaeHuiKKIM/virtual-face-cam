@@ -61,6 +61,8 @@ App Group, macOS System Extension 승인이 필요합니다.
 ## 문제 해결
 
 - 앱이 안 열리면 더블클릭 대신 오른쪽 클릭 > **열기**를 사용하세요.
+- 오른쪽 클릭 > **열기**에도 아무 일도 안 일어나면 `run-mac.command`를 더블클릭하세요.
+- 그래도 안 열리면 `~/Library/Application Support/VirtualFaceCamMac/launch.log`를 확인하세요.
 - `OBS Virtual Camera is not installed`가 나오면 OBS에서 **Start Virtual Camera**를 한 번 누르세요.
 - 앱 상태가 `Live`로 바뀌면 우리 앱은 OBS Virtual Camera에 프레임을 보내고 있는 상태입니다.
 - 다른 앱에 카메라가 안 보이면 그 앱을 완전히 종료했다가 다시 켜세요.

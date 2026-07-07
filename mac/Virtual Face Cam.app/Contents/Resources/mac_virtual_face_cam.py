@@ -551,7 +551,7 @@ HTML = r"""<!doctype html>
       min-width: 0;
       padding: 34px;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto minmax(0, 1fr) auto auto;
       gap: 22px;
     }
     .stage-header {
@@ -741,6 +741,37 @@ HTML = r"""<!doctype html>
       background: rgba(255, 92, 122, 0.10);
       color: #ffdce4;
     }
+    .live-dock {
+      position: sticky;
+      bottom: 18px;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 220px) 112px;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 18px;
+      background: rgba(24, 29, 33, 0.92);
+      backdrop-filter: blur(24px);
+      box-shadow: 0 22px 60px rgba(0, 0, 0, 0.32);
+    }
+    .live-dock strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .live-dock button {
+      min-height: 54px;
+      font-size: 16px;
+      border-radius: 13px;
+    }
+    .big-action.danger {
+      background: linear-gradient(135deg, #ff5c7a, #ff8a4d);
+      color: #fff;
+      box-shadow: 0 12px 28px rgba(255, 92, 122, 0.22);
+    }
     @media (max-width: 880px) {
       .shell { grid-template-columns: 1fr; }
       .sidebar { border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
@@ -748,6 +779,7 @@ HTML = r"""<!doctype html>
       .stage-header { align-items: flex-start; flex-direction: column; }
       .pill-row { justify-content: flex-start; }
       .metrics { grid-template-columns: 1fr; }
+      .live-dock { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -880,6 +912,15 @@ HTML = r"""<!doctype html>
     </section>
 
     <div class="status" id="status"><span class="dot"></span><span>Stopped</span></div>
+
+    <section class="live-dock" aria-label="Camera controls">
+      <div>
+        <span class="eyebrow">Camera Control</span>
+        <strong id="dockStatus">Ready to start</strong>
+      </div>
+      <button id="mainToggle" class="primary big-action">Start Live</button>
+      <button id="dockQuit" class="secondary">Quit</button>
+    </section>
   </section>
 </main>
 
@@ -903,9 +944,13 @@ const uploadBtn = document.getElementById("upload");
 const startBtn = document.getElementById("start");
 const stopBtn = document.getElementById("stop");
 const quitBtn = document.getElementById("quit");
+const mainToggle = document.getElementById("mainToggle");
+const dockQuit = document.getElementById("dockQuit");
+const dockStatus = document.getElementById("dockStatus");
 const settingInputs = ["width", "height", "fps", "interval"].map(id => document.getElementById(id));
 let previewKey = "";
 let isQuitting = false;
+let latestState = { running: false, imageCount: 0 };
 
 function setStatus(message, tone = "idle") {
   const dotTone = tone === "running" ? "ready" : tone === "error" ? "error" : tone === "busy" ? "busy" : "";
@@ -953,14 +998,20 @@ function syncMetrics() {
 }
 
 function applyControls(data) {
+  latestState = data;
   const hasImages = Boolean(data.imageCount);
+  const running = Boolean(data.running);
   uploadBtn.disabled = Boolean(data.running);
   startBtn.disabled = Boolean(data.running) || !hasImages;
   stopBtn.disabled = !data.running;
   settingInputs.forEach(input => input.disabled = Boolean(data.running));
-  cameraValue.textContent = data.running ? "Live to OBS" : hasImages ? "Ready" : "Waiting";
-  startBtn.textContent = data.running ? "Running" : "Start";
-  stopBtn.textContent = data.running ? "Stop Live" : "Stop";
+  cameraValue.textContent = running ? "Live to OBS" : hasImages ? "Ready" : "Waiting";
+  startBtn.textContent = running ? "Running" : "Start";
+  stopBtn.textContent = running ? "Stop Live" : "Stop";
+  mainToggle.disabled = !running && !hasImages;
+  mainToggle.textContent = running ? "Stop Live" : "Start Live";
+  mainToggle.className = running ? "danger big-action" : "primary big-action";
+  dockStatus.textContent = running ? "Live to OBS Virtual Camera" : hasImages ? "Ready to start" : "Choose an image first";
 }
 
 function selectedFiles() {
@@ -1011,7 +1062,7 @@ document.getElementById("upload").addEventListener("click", async () => {
   }
 });
 
-document.getElementById("start").addEventListener("click", async () => {
+async function startCamera() {
   const body = {
     width: Number(document.getElementById("width").value),
     height: Number(document.getElementById("height").value),
@@ -1021,6 +1072,7 @@ document.getElementById("start").addEventListener("click", async () => {
   setStatus("Starting virtual camera...", "busy");
   startBtn.disabled = true;
   uploadBtn.disabled = true;
+  mainToggle.disabled = true;
   try {
     await api("/api/start", {
       method: "POST",
@@ -1032,11 +1084,12 @@ document.getElementById("start").addEventListener("click", async () => {
     setStatus(err.message, "error");
     await refresh();
   }
-});
+}
 
-document.getElementById("stop").addEventListener("click", async () => {
+async function stopCamera() {
   setStatus("Stopping virtual camera...", "busy");
   stopBtn.disabled = true;
+  mainToggle.disabled = true;
   try {
     await api("/api/stop", { method: "POST" });
     await refresh();
@@ -1044,11 +1097,14 @@ document.getElementById("stop").addEventListener("click", async () => {
     setStatus(err.message, "error");
     await refresh();
   }
-});
+}
+
+document.getElementById("start").addEventListener("click", startCamera);
+document.getElementById("stop").addEventListener("click", stopCamera);
 
 document.getElementById("refresh").addEventListener("click", refresh);
 
-quitBtn.addEventListener("click", () => {
+function quitApp() {
   isQuitting = true;
   setStatus("Closing app...", "busy");
   navigator.sendBeacon("/api/quit", new Blob([], { type: "text/plain" }));
@@ -1056,6 +1112,17 @@ quitBtn.addEventListener("click", () => {
   setTimeout(() => {
     statusEl.innerHTML = `<span class="dot busy"></span><span>App closed. Open Virtual Face Cam.app to start again.</span>`;
   }, 300);
+}
+
+quitBtn.addEventListener("click", quitApp);
+dockQuit.addEventListener("click", quitApp);
+
+mainToggle.addEventListener("click", () => {
+  if (latestState.running) {
+    stopCamera();
+  } else {
+    startCamera();
+  }
 });
 
 function pingServer() {

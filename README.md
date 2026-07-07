@@ -123,6 +123,13 @@ chrome://restart
 처음 실행할 때는 더블클릭 대신 오른쪽 클릭 후 **열기**를 사용하세요.
 macOS Gatekeeper 때문에 처음 한 번은 이 과정이 필요할 수 있습니다.
 
+오른쪽 클릭 후 **열기**를 눌러도 아무 일도 안 일어나면 `mac/run-mac.command`를
+더블클릭하세요. 그래도 실패하면 아래 로그 파일을 확인하면 원인을 볼 수 있습니다.
+
+```text
+~/Library/Application Support/VirtualFaceCamMac/launch.log
+```
+
 ### Mac에서 Python 오류가 나요
 
 `mac/Virtual Face Cam.app` 또는 `mac/run-mac.command`를 쓰는 것을 권장합니다.
