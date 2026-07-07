@@ -30,6 +30,8 @@ https://github.com/TaeHuiKKIM/virtual-face-cam-mac
 
 OBS는 가상 카메라 드라이버를 등록하기 위해 필요합니다.
 드라이버 등록 후에는 Virtual Face Cam을 쓸 때 OBS 창을 계속 켜둘 필요는 없습니다.
+OBS 안의 **Start Virtual Camera**는 등록 확인용입니다. 실제 이미지 송출은 아래에서
+Virtual Face Cam 앱의 **Start** 버튼으로 시작하세요.
 
 ### 2. 이 저장소 다운로드
 
@@ -96,9 +98,10 @@ python3 virtual_cam.py face.jpg
 
 1. OBS Studio를 설치했는지 확인합니다.
 2. OBS에서 **Start Virtual Camera**를 한 번 눌렀는지 확인합니다.
-3. Zoom, Teams, Chrome을 완전히 종료했다가 다시 켭니다.
-4. Mac에서는 시스템 설정 > 개인정보 보호 및 보안에서 OBS 시스템 확장을 허용했는지 확인합니다.
-5. 그래도 안 되면 Mac을 한 번 재시동합니다.
+3. Mac에서는 시스템 설정 > 일반 > 로그인 항목 및 확장 프로그램 > 카메라 확장에서 OBS Virtual Camera가 켜져 있는지 확인합니다.
+4. Virtual Face Cam 앱에서 **Start**를 눌러 상태가 `Live`로 바뀌었는지 확인합니다.
+5. Zoom, Teams, Chrome을 완전히 종료했다가 다시 켭니다.
+6. 그래도 안 되면 Mac을 한 번 재시동합니다.
 
 ### Mac에서 앱이 안 열려요
 

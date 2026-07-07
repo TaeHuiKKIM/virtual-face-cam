@@ -13,9 +13,12 @@ Tkinter를 쓰지 않고 브라우저 화면으로 조작합니다.
 
 1. https://obsproject.com/ 에서 OBS Studio를 설치합니다.
 2. OBS를 한 번 실행합니다.
-3. **Start Virtual Camera**를 한 번 누릅니다.
+3. **Start Virtual Camera**를 한 번 눌러 macOS 카메라 확장을 등록합니다.
 4. macOS가 시스템 확장 허용을 물어보면 허용합니다.
 5. 필요하면 Mac을 재시동합니다.
+
+등록이 끝난 뒤에는 OBS 창을 계속 켜둘 필요가 없습니다. 실제 송출 시작은 이 앱의
+**Start** 버튼으로 합니다.
 
 ### 2. 앱 실행
 
@@ -53,6 +56,7 @@ App Group, macOS System Extension 승인이 필요합니다.
 
 - 앱이 안 열리면 더블클릭 대신 오른쪽 클릭 > **열기**를 사용하세요.
 - `OBS Virtual Camera is not installed`가 나오면 OBS에서 **Start Virtual Camera**를 한 번 누르세요.
+- 앱 상태가 `Live`로 바뀌면 우리 앱은 OBS Virtual Camera에 프레임을 보내고 있는 상태입니다.
 - 다른 앱에 카메라가 안 보이면 그 앱을 완전히 종료했다가 다시 켜세요.
 - 그래도 안 보이면 Mac을 재시동하세요.
 

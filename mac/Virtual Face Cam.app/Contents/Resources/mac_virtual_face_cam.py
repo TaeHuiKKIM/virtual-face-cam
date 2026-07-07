@@ -184,6 +184,14 @@ class AppState:
 STATE = AppState()
 
 
+FAVICON_SVG = b"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<defs><linearGradient id="g" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse"><stop stop-color="#29d17d"/><stop offset="1" stop-color="#17b6d4"/></linearGradient></defs>
+<rect width="64" height="64" rx="18" fill="url(#g)"/>
+<rect x="15" y="22" width="31" height="20" rx="5" fill="none" stroke="#fff" stroke-width="5"/>
+<path d="M46 27l9-5v20l-9-5z" fill="#fff"/>
+</svg>"""
+
+
 def default_image_candidates() -> list[Path]:
     script_dir = Path(__file__).resolve().parent
     return [
@@ -218,6 +226,7 @@ HTML = r"""<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Virtual Face Cam</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <style>
     :root {
       color-scheme: dark;
@@ -441,6 +450,19 @@ HTML = r"""<!doctype html>
       color: #06120d;
     }
     button.danger { background: rgba(255, 92, 122, 0.18); color: #ffdce4; }
+    button.danger:disabled {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+    }
+    body[data-state="running"] #start {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+    }
+    body[data-state="running"] #stop {
+      background: linear-gradient(135deg, #ff5c7a, #ff8a4d);
+      color: #fff;
+      box-shadow: 0 12px 28px rgba(255, 92, 122, 0.22);
+    }
     .loaded-card,
     .note-card {
       padding: 14px;
@@ -503,6 +525,22 @@ HTML = r"""<!doctype html>
     }
     .dot.ready { background: var(--accent); box-shadow: 0 0 18px rgba(41, 209, 125, 0.7); }
     .dot.error { background: var(--danger); }
+    .dot.busy { background: var(--warning); box-shadow: 0 0 18px rgba(242, 163, 58, 0.6); }
+    body[data-state="running"] #statePill {
+      border-color: rgba(41, 209, 125, 0.42);
+      background: rgba(41, 209, 125, 0.12);
+      color: #d9ffe9;
+    }
+    body[data-state="busy"] #statePill {
+      border-color: rgba(242, 163, 58, 0.42);
+      background: rgba(242, 163, 58, 0.12);
+      color: #ffe9bf;
+    }
+    body[data-state="error"] #statePill {
+      border-color: rgba(255, 92, 122, 0.42);
+      background: rgba(255, 92, 122, 0.12);
+      color: #ffdce4;
+    }
     .preview-shell {
       min-height: 390px;
       display: grid;
@@ -519,6 +557,7 @@ HTML = r"""<!doctype html>
       position: relative;
       display: grid;
       place-items: center;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease;
     }
     .preview::before,
     .preview::after {
@@ -531,6 +570,27 @@ HTML = r"""<!doctype html>
     }
     .preview::before { content: "OBS Virtual Camera"; left: 22px; }
     .preview::after { content: "1280 x 720"; right: 22px; }
+    body[data-state="running"] .preview {
+      border-color: rgba(41, 209, 125, 0.62);
+      box-shadow: var(--shadow), 0 0 0 1px rgba(41, 209, 125, 0.24), 0 0 46px rgba(41, 209, 125, 0.12);
+    }
+    body[data-state="running"] .preview::before {
+      content: "LIVE - OBS Virtual Camera";
+      color: #dcffeb;
+    }
+    body[data-state="running"] .preview::after {
+      content: "SENDING";
+      right: 18px;
+      top: 16px;
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #06120d;
+      box-shadow: 0 0 22px rgba(41, 209, 125, 0.34);
+    }
     .preview img {
       width: clamp(140px, 34vw, 520px);
       height: auto;
@@ -596,6 +656,17 @@ HTML = r"""<!doctype html>
       display: flex;
       align-items: center;
       gap: 10px;
+      transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+    }
+    body[data-state="running"] .status {
+      border-color: rgba(41, 209, 125, 0.42);
+      background: rgba(41, 209, 125, 0.10);
+      color: #d9ffe9;
+    }
+    body[data-state="error"] .status {
+      border-color: rgba(255, 92, 122, 0.42);
+      background: rgba(255, 92, 122, 0.10);
+      color: #ffdce4;
     }
     @media (max-width: 880px) {
       .shell { grid-template-columns: 1fr; }
@@ -621,7 +692,7 @@ HTML = r"""<!doctype html>
     <section class="status-grid" aria-label="Current output">
       <div class="mini-card">
         <span class="eyebrow">Camera</span>
-        <strong>OBS Virtual Camera</strong>
+        <strong id="cameraValue">Ready</strong>
       </div>
       <div class="mini-card">
         <span class="eyebrow">Output</span>
@@ -693,7 +764,7 @@ HTML = r"""<!doctype html>
     <section class="note-card">
       <span class="eyebrow">Setup note</span>
       <strong>OBS is required once</strong>
-      <p>Install OBS Studio, start its virtual camera once, then choose OBS Virtual Camera in Zoom, Teams, Chrome, or FaceTime.</p>
+      <p>Install OBS Studio once to register the camera extension. Then press Start here and choose OBS Virtual Camera in Zoom, Teams, Chrome, or FaceTime.</p>
     </section>
   </aside>
 
@@ -704,7 +775,7 @@ HTML = r"""<!doctype html>
         <p>Preview the exact image frame that will be sent to your virtual camera.</p>
       </div>
       <div class="pill-row">
-        <span class="pill"><span class="dot" id="statusDot"></span><span id="stateLabel">Stopped</span></span>
+        <span class="pill" id="statePill"><span class="dot" id="statusDot"></span><span id="stateLabel">Ready</span></span>
         <span class="pill" id="sourceLabel">No source</span>
       </div>
     </header>
@@ -746,18 +817,27 @@ const folderCount = document.getElementById("folderCount");
 const preview = document.getElementById("preview");
 const statusEl = document.getElementById("status");
 const statusDot = document.getElementById("statusDot");
+const statePill = document.getElementById("statePill");
 const stateLabel = document.getElementById("stateLabel");
 const sourceLabel = document.getElementById("sourceLabel");
 const loaded = document.getElementById("loaded");
 const loadedTitle = document.getElementById("loadedTitle");
 const resolutionMetric = document.getElementById("resolutionMetric");
 const fpsMetric = document.getElementById("fpsMetric");
+const cameraValue = document.getElementById("cameraValue");
+const uploadBtn = document.getElementById("upload");
+const startBtn = document.getElementById("start");
+const stopBtn = document.getElementById("stop");
+const settingInputs = ["width", "height", "fps", "interval"].map(id => document.getElementById(id));
 let previewKey = "";
 
 function setStatus(message, tone = "idle") {
-  statusEl.innerHTML = `<span class="dot ${tone === "running" ? "ready" : tone === "error" ? "error" : ""}"></span><span>${message}</span>`;
-  statusDot.className = `dot ${tone === "running" ? "ready" : tone === "error" ? "error" : ""}`;
-  stateLabel.textContent = tone === "running" ? "Running" : tone === "error" ? "Needs attention" : "Stopped";
+  const dotTone = tone === "running" ? "ready" : tone === "error" ? "error" : tone === "busy" ? "busy" : "";
+  document.body.dataset.state = tone;
+  statePill.className = `pill ${tone}`;
+  statusEl.innerHTML = `<span class="dot ${dotTone}"></span><span>${message}</span>`;
+  statusDot.className = `dot ${dotTone}`;
+  stateLabel.textContent = tone === "running" ? "Live" : tone === "error" ? "Needs attention" : tone === "busy" ? "Working" : "Ready";
 }
 
 async function api(path, options = {}) {
@@ -796,6 +876,17 @@ function syncMetrics() {
   fpsMetric.textContent = `${document.getElementById("fps").value} FPS`;
 }
 
+function applyControls(data) {
+  const hasImages = Boolean(data.imageCount);
+  uploadBtn.disabled = Boolean(data.running);
+  startBtn.disabled = Boolean(data.running) || !hasImages;
+  stopBtn.disabled = !data.running;
+  settingInputs.forEach(input => input.disabled = Boolean(data.running));
+  cameraValue.textContent = data.running ? "Live to OBS" : hasImages ? "Ready" : "Waiting";
+  startBtn.textContent = data.running ? "Running" : "Start";
+  stopBtn.textContent = data.running ? "Stop Live" : "Stop";
+}
+
 function selectedFiles() {
   const direct = Array.from(files.files || []);
   return direct.length ? direct : Array.from(folder.files || []);
@@ -832,11 +923,12 @@ document.getElementById("upload").addEventListener("click", async () => {
   }
   const form = new FormData();
   list.forEach(file => form.append("files", file, file.name));
-  setStatus("Uploading images...");
+  setStatus("Uploading images...", "busy");
   try {
     const data = await api("/api/upload", { method: "POST", body: form });
     loadedTitle.textContent = `${data.count} image(s) ready`;
     loaded.textContent = data.names.join(", ");
+    applyControls({ running: false, imageCount: data.count });
     setStatus(`${data.count} image(s) loaded.`);
   } catch (err) {
     setStatus(err.message, "error");
@@ -850,22 +942,32 @@ document.getElementById("start").addEventListener("click", async () => {
     fps: Number(document.getElementById("fps").value),
     interval: Number(document.getElementById("interval").value)
   };
-  setStatus("Starting virtual camera...");
+  setStatus("Starting virtual camera...", "busy");
+  startBtn.disabled = true;
+  uploadBtn.disabled = true;
   try {
-    const data = await api("/api/start", {
+    await api("/api/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    setStatus(`Running: ${data.device || "OBS Virtual Camera"}`, "running");
+    await refresh();
   } catch (err) {
     setStatus(err.message, "error");
+    await refresh();
   }
 });
 
 document.getElementById("stop").addEventListener("click", async () => {
-  await api("/api/stop", { method: "POST" });
-  await refresh();
+  setStatus("Stopping virtual camera...", "busy");
+  stopBtn.disabled = true;
+  try {
+    await api("/api/stop", { method: "POST" });
+    await refresh();
+  } catch (err) {
+    setStatus(err.message, "error");
+    await refresh();
+  }
 });
 
 document.getElementById("refresh").addEventListener("click", refresh);
@@ -873,6 +975,7 @@ document.getElementById("refresh").addEventListener("click", refresh);
 async function refresh() {
   try {
     const data = await api("/api/status");
+    applyControls(data);
     loadedTitle.textContent = data.imageCount ? `${data.imageCount} image(s) ready` : "None";
     loaded.textContent = data.imageCount ? data.imageNames.join(", ") : "Upload images to prepare the camera feed.";
     if (data.imageCount && !selectedFiles().length) {
@@ -882,7 +985,7 @@ async function refresh() {
       fileCount.textContent = "No images selected";
     }
     if (data.running) {
-      setStatus(`Running: ${data.device || "OBS Virtual Camera"}`, "running");
+      setStatus(`Live: sending frames to ${data.device || "OBS Virtual Camera"}.`, "running");
     } else if (data.error) {
       setStatus(data.error, "error");
     } else if (data.imageCount) {
@@ -925,6 +1028,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/preview":
             self.send_preview()
+            return
+        if path in {"/favicon.svg", "/favicon.ico"}:
+            self.send_favicon()
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -1024,6 +1130,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def send_favicon(self) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/svg+xml")
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.send_header("Content-Length", str(len(FAVICON_SVG)))
+        self.end_headers()
+        self.wfile.write(FAVICON_SVG)
 
     def send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
