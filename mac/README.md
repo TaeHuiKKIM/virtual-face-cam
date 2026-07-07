@@ -31,10 +31,13 @@ Finder에서 `Virtual Face Cam.app`을 오른쪽 클릭한 뒤 **열기**를 누
 
 ### 3. 사용
 
-1. 브라우저가 열리면 이미지 또는 폴더를 선택합니다.
-2. **Upload**를 누릅니다.
-3. **Start**를 누릅니다.
-4. Zoom, Teams, Chrome 같은 앱에서 `OBS Virtual Camera`를 선택합니다.
+앱을 처음 열면 기본 이미지가 미리 준비되어 있습니다.
+
+1. 기본 이미지를 그대로 쓰려면 바로 **Start**를 누릅니다.
+2. 다른 이미지를 쓰려면 이미지 또는 폴더를 선택합니다.
+3. **Upload**를 누릅니다.
+4. **Start**를 누릅니다.
+5. Zoom, Teams, Chrome 같은 앱에서 `OBS Virtual Camera`를 선택합니다.
 
 ## OBS 없이 앱 자체만으로 쓰고 싶다면
 

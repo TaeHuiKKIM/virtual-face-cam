@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import mimetypes
 import re
 import shutil
 import threading
@@ -142,6 +143,12 @@ class AppState:
             self.image_names = [p.name for p in paths]
             self.last_error = None
 
+    def preview_image(self) -> Path | None:
+        with self.lock:
+            if not self.image_paths:
+                return None
+            return self.image_paths[0]
+
     def start_camera(self, width: int, height: int, fps: int, interval: float) -> dict:
         with self.lock:
             if self.worker and self.worker.is_alive():
@@ -175,6 +182,34 @@ class AppState:
 
 
 STATE = AppState()
+
+
+def default_image_candidates() -> list[Path]:
+    script_dir = Path(__file__).resolve().parent
+    return [
+        script_dir / "assets" / "default_face.jpg",
+        script_dir / "default_face.jpg",
+        script_dir.parent / "assets" / "default_face.jpg",
+        Path.cwd() / "assets" / "default_face.jpg",
+    ]
+
+
+def load_default_image() -> None:
+    for candidate in default_image_candidates():
+        if not candidate.is_file():
+            continue
+        session_dir = UPLOAD_ROOT / "default"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        out = session_dir / candidate.name
+        try:
+            if candidate.resolve() != out.resolve():
+                shutil.copyfile(candidate, out)
+            with Image.open(out) as img:
+                img.verify()
+        except (OSError, UnidentifiedImageError):
+            continue
+        STATE.replace_images([out])
+        return
 
 
 HTML = r"""<!doctype html>
@@ -717,6 +752,7 @@ const loaded = document.getElementById("loaded");
 const loadedTitle = document.getElementById("loadedTitle");
 const resolutionMetric = document.getElementById("resolutionMetric");
 const fpsMetric = document.getElementById("fpsMetric");
+let previewKey = "";
 
 function setStatus(message, tone = "idle") {
   statusEl.innerHTML = `<span class="dot ${tone === "running" ? "ready" : tone === "error" ? "error" : ""}"></span><span>${message}</span>`;
@@ -768,12 +804,24 @@ function selectedFiles() {
 function showPreview(list) {
   if (!list[0]) return;
   const url = URL.createObjectURL(list[0]);
+  previewKey = `local:${list.map(file => file.name).join("|")}`;
   preview.innerHTML = "";
   const img = document.createElement("img");
   img.onload = () => URL.revokeObjectURL(url);
   img.src = url;
   preview.appendChild(img);
   sourceLabel.textContent = list.length === 1 ? list[0].name : `${list.length} images`;
+}
+
+function showServerPreview(names) {
+  const key = `server:${names.join("|")}`;
+  if (!names.length || previewKey === key) return;
+  previewKey = key;
+  preview.innerHTML = "";
+  const img = document.createElement("img");
+  img.src = `/api/preview?key=${encodeURIComponent(key)}&t=${Date.now()}`;
+  preview.appendChild(img);
+  sourceLabel.textContent = names.length === 1 ? names[0] : `${names.length} images`;
 }
 
 document.getElementById("upload").addEventListener("click", async () => {
@@ -827,10 +875,18 @@ async function refresh() {
     const data = await api("/api/status");
     loadedTitle.textContent = data.imageCount ? `${data.imageCount} image(s) ready` : "None";
     loaded.textContent = data.imageCount ? data.imageNames.join(", ") : "Upload images to prepare the camera feed.";
+    if (data.imageCount && !selectedFiles().length) {
+      fileCount.textContent = data.imageNames[0] === "default_face.jpg" ? "Default ready" : `${data.imageCount} ready`;
+      showServerPreview(data.imageNames);
+    } else if (!data.imageCount && !selectedFiles().length) {
+      fileCount.textContent = "No images selected";
+    }
     if (data.running) {
       setStatus(`Running: ${data.device || "OBS Virtual Camera"}`, "running");
     } else if (data.error) {
       setStatus(data.error, "error");
+    } else if (data.imageCount) {
+      setStatus(`${data.imageCount} image(s) ready. Press Start to send.`);
     } else {
       setStatus("Stopped");
     }
@@ -866,6 +922,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/status":
             self.send_json(STATE.snapshot())
+            return
+        if path == "/api/preview":
+            self.send_preview()
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -952,6 +1011,20 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
+    def send_preview(self) -> None:
+        path = STATE.preview_image()
+        if path is None or not path.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        body = path.read_bytes()
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -989,6 +1062,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     APP_SUPPORT.mkdir(parents=True, exist_ok=True)
+    load_default_image()
     try:
         server = ThreadingHTTPServer((args.host, args.port), Handler)
     except OSError:
