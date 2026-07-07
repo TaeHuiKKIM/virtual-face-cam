@@ -209,6 +209,8 @@ class ShutdownController:
                 threading.Thread(target=self._monitor, daemon=True).start()
 
     def schedule(self, server: HTTPServer, delay: float = 6.0) -> None:
+        if STATE.snapshot()["running"]:
+            return
         with self.lock:
             self.server = server
             self._cancel_locked()
@@ -235,6 +237,9 @@ class ShutdownController:
                 if server is None:
                     self.monitor_started = False
                     return
+                if STATE.snapshot()["running"]:
+                    self.last_seen = time.monotonic()
+                    continue
                 if time.monotonic() - self.last_seen <= 16:
                     continue
                 self.server = None
@@ -1302,11 +1307,13 @@ function pingServer() {
 
 window.addEventListener("pagehide", () => {
   if (isQuitting) return;
+  if (latestState.running) return;
   navigator.sendBeacon("/api/client-close", new Blob([], { type: "text/plain" }));
 });
 
 window.addEventListener("beforeunload", () => {
   if (isQuitting) return;
+  if (latestState.running) return;
   navigator.sendBeacon("/api/client-close", new Blob([], { type: "text/plain" }));
 });
 
@@ -1544,7 +1551,7 @@ def main() -> None:
         server = ThreadingHTTPServer((args.host, 0), Handler)
     actual_port = server.server_address[1]
     url = f"http://{args.host}:{actual_port}/"
-    print(f"{APP_NAME} running at {url}")
+    print(f"{APP_NAME} running at {url}", flush=True)
     if not args.no_open:
         threading.Timer(0.4, lambda: open_browser(url)).start()
     try:
