@@ -7,6 +7,8 @@ import json
 import mimetypes
 import re
 import shutil
+import subprocess
+import sys
 import threading
 import time
 import webbrowser
@@ -14,6 +16,7 @@ from dataclasses import dataclass, field
 from email.parser import BytesParser
 from email.policy import default as email_policy
 from http import HTTPStatus
+from http.server import HTTPServer
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -182,6 +185,69 @@ class AppState:
 
 
 STATE = AppState()
+
+
+class ShutdownController:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.timer: threading.Timer | None = None
+        self.server: HTTPServer | None = None
+        self.last_seen = 0.0
+        self.monitor_started = False
+
+    def cancel(self) -> None:
+        with self.lock:
+            self._cancel_locked()
+
+    def mark_active(self, server: HTTPServer) -> None:
+        with self.lock:
+            self.server = server
+            self.last_seen = time.monotonic()
+            self._cancel_locked()
+            if not self.monitor_started:
+                self.monitor_started = True
+                threading.Thread(target=self._monitor, daemon=True).start()
+
+    def schedule(self, server: HTTPServer, delay: float = 6.0) -> None:
+        with self.lock:
+            self.server = server
+            self._cancel_locked()
+            self.timer = threading.Timer(delay, self._shutdown, args=(server,))
+            self.timer.daemon = True
+            self.timer.start()
+
+    def now(self, server: HTTPServer) -> None:
+        with self.lock:
+            self.server = None
+            self._cancel_locked()
+        threading.Thread(target=self._shutdown, args=(server,), daemon=True).start()
+
+    def _cancel_locked(self) -> None:
+        if self.timer:
+            self.timer.cancel()
+            self.timer = None
+
+    def _monitor(self) -> None:
+        while True:
+            time.sleep(3)
+            with self.lock:
+                server = self.server
+                if server is None:
+                    self.monitor_started = False
+                    return
+                if time.monotonic() - self.last_seen <= 16:
+                    continue
+                self.server = None
+                self._cancel_locked()
+            self._shutdown(server)
+            return
+
+    def _shutdown(self, server: HTTPServer) -> None:
+        STATE.stop_camera()
+        server.shutdown()
+
+
+SHUTDOWN = ShutdownController()
 
 
 FAVICON_SVG = b"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
@@ -453,6 +519,13 @@ HTML = r"""<!doctype html>
     button.danger:disabled {
       background: rgba(255, 255, 255, 0.08);
       color: var(--muted);
+    }
+    button.secondary {
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--muted);
+    }
+    #quit {
+      grid-column: 1 / -1;
     }
     body[data-state="running"] #start {
       background: rgba(255, 255, 255, 0.08);
@@ -753,6 +826,7 @@ HTML = r"""<!doctype html>
       <button id="start" class="primary">Start</button>
       <button id="stop" class="danger">Stop</button>
       <button id="refresh">Refresh</button>
+      <button id="quit" class="secondary">Quit App</button>
     </section>
 
     <section class="loaded-card">
@@ -828,8 +902,10 @@ const cameraValue = document.getElementById("cameraValue");
 const uploadBtn = document.getElementById("upload");
 const startBtn = document.getElementById("start");
 const stopBtn = document.getElementById("stop");
+const quitBtn = document.getElementById("quit");
 const settingInputs = ["width", "height", "fps", "interval"].map(id => document.getElementById(id));
 let previewKey = "";
+let isQuitting = false;
 
 function setStatus(message, tone = "idle") {
   const dotTone = tone === "running" ? "ready" : tone === "error" ? "error" : tone === "busy" ? "busy" : "";
@@ -972,6 +1048,31 @@ document.getElementById("stop").addEventListener("click", async () => {
 
 document.getElementById("refresh").addEventListener("click", refresh);
 
+quitBtn.addEventListener("click", () => {
+  isQuitting = true;
+  setStatus("Closing app...", "busy");
+  navigator.sendBeacon("/api/quit", new Blob([], { type: "text/plain" }));
+  document.body.dataset.state = "busy";
+  setTimeout(() => {
+    statusEl.innerHTML = `<span class="dot busy"></span><span>App closed. Open Virtual Face Cam.app to start again.</span>`;
+  }, 300);
+});
+
+function pingServer() {
+  if (isQuitting) return;
+  fetch("/api/ping", { method: "POST", keepalive: true }).catch(() => {});
+}
+
+window.addEventListener("pagehide", () => {
+  if (isQuitting) return;
+  navigator.sendBeacon("/api/client-close", new Blob([], { type: "text/plain" }));
+});
+
+window.addEventListener("beforeunload", () => {
+  if (isQuitting) return;
+  navigator.sendBeacon("/api/client-close", new Blob([], { type: "text/plain" }));
+});
+
 async function refresh() {
   try {
     const data = await api("/api/status");
@@ -999,6 +1100,8 @@ async function refresh() {
 }
 
 syncMetrics();
+pingServer();
+setInterval(pingServer, 4000);
 setInterval(refresh, 1500);
 refresh();
 </script>
@@ -1016,6 +1119,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/":
+            SHUTDOWN.mark_active(self.server)
             body = HTML.encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1024,9 +1128,11 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/api/status":
+            SHUTDOWN.mark_active(self.server)
             self.send_json(STATE.snapshot())
             return
         if path == "/api/preview":
+            SHUTDOWN.mark_active(self.server)
             self.send_preview()
             return
         if path in {"/favicon.svg", "/favicon.ico"}:
@@ -1044,6 +1150,15 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/stop":
                 STATE.stop_camera()
                 self.send_json({"ok": True})
+            elif path == "/api/ping":
+                SHUTDOWN.mark_active(self.server)
+                self.send_json({"ok": True})
+            elif path == "/api/client-close":
+                self.send_json({"ok": True})
+                SHUTDOWN.schedule(self.server)
+            elif path == "/api/quit":
+                self.send_json({"ok": True})
+                SHUTDOWN.now(self.server)
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
         except Exception as exc:
@@ -1173,6 +1288,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def open_browser(url: str) -> None:
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", url])
+        return
+    webbrowser.open(url)
+
+
 def main() -> None:
     args = parse_args()
     APP_SUPPORT.mkdir(parents=True, exist_ok=True)
@@ -1187,7 +1309,7 @@ def main() -> None:
     url = f"http://{args.host}:{actual_port}/"
     print(f"{APP_NAME} running at {url}")
     if not args.no_open:
-        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.4, lambda: open_browser(url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -24,6 +24,9 @@ Tkinter를 쓰지 않고 브라우저 화면으로 조작합니다.
 
 Finder에서 `Virtual Face Cam.app`을 오른쪽 클릭한 뒤 **열기**를 누르세요.
 
+이 앱은 별도 Mac 앱 창 대신 브라우저 조작 화면을 엽니다. Dock에 앱 창이 안 떠도
+브라우저 탭이 열리면 정상입니다.
+
 터미널에서 실행하려면:
 
 ```bash
@@ -42,6 +45,9 @@ Finder에서 `Virtual Face Cam.app`을 오른쪽 클릭한 뒤 **열기**를 누
 4. **Start**를 누릅니다.
 5. Zoom, Teams, Chrome 같은 앱에서 `OBS Virtual Camera`를 선택합니다.
 
+브라우저 탭을 닫으면 몇 초 뒤 앱 서버도 자동으로 종료됩니다. 바로 끝내고 싶으면
+화면의 **Quit App**을 누르세요.
+
 ## OBS 없이 앱 자체만으로 쓰고 싶다면
 
 OBS Virtual Camera 없이 앱 자체가 macOS 카메라 장치로 보이게 하려면 아래
@@ -58,6 +64,7 @@ App Group, macOS System Extension 승인이 필요합니다.
 - `OBS Virtual Camera is not installed`가 나오면 OBS에서 **Start Virtual Camera**를 한 번 누르세요.
 - 앱 상태가 `Live`로 바뀌면 우리 앱은 OBS Virtual Camera에 프레임을 보내고 있는 상태입니다.
 - 다른 앱에 카메라가 안 보이면 그 앱을 완전히 종료했다가 다시 켜세요.
+- Chrome에서 카메라가 안 보이면 주소창에 `chrome://restart`를 입력해서 Chrome을 완전히 재시작하세요.
 - 그래도 안 보이면 Mac을 재시동하세요.
 
 ## 앱 번들 갱신
