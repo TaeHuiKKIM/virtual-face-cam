@@ -1,9 +1,10 @@
-"""macOS-first browser UI for sending still images to OBS Virtual Camera."""
+"""macOS browser UI for sending images or looping video to OBS Virtual Camera."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import mimetypes
 import re
 import shutil
@@ -23,13 +24,17 @@ from urllib.parse import urlparse
 
 import numpy as np
 import pyvirtualcam
+import cv2
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 
 APP_NAME = "Virtual Face Cam"
 APP_SUPPORT = Path.home() / "Library" / "Application Support" / "VirtualFaceCamMac"
 UPLOAD_ROOT = APP_SUPPORT / "uploads"
+SETTINGS_PATH = APP_SUPPORT / "settings.json"
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
+MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
 
 
@@ -66,23 +71,127 @@ def load_frames(paths: list[Path], width: int, height: int) -> list[np.ndarray]:
     return frames
 
 
+def fit_video_frame(frame: np.ndarray, width: int, height: int) -> np.ndarray:
+    if frame.ndim == 2:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+    elif frame.shape[2] == 4:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
+    else:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    source_h, source_w = rgb.shape[:2]
+    scale = min(width / source_w, height / source_h)
+    new_w = max(1, int(source_w * scale))
+    new_h = max(1, int(source_h * scale))
+    interpolation = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
+    resized = cv2.resize(rgb, (new_w, new_h), interpolation=interpolation)
+    canvas = np.zeros((height, width, 3), dtype=np.uint8)
+    x0 = (width - new_w) // 2
+    y0 = (height - new_h) // 2
+    canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
+    return np.ascontiguousarray(canvas)
+
+
 def safe_filename(name: str) -> str:
-    base = Path(name).name.strip() or "image"
+    base = Path(name).name.strip() or "media"
     stem = re.sub(r"[^A-Za-z0-9._ -]+", "_", base)
     return stem[:120]
+
+
+class ImageFrameSource:
+    def __init__(self, paths: list[Path], width: int, height: int, fps: int, interval: float):
+        self.frames = load_frames(paths, width, height)
+        self.frames_per_image = max(1, int(interval * fps))
+        self.index = 0
+        self.frame_count = 0
+
+    def next_frame(self) -> np.ndarray:
+        frame = self.frames[self.index]
+        if len(self.frames) > 1:
+            self.frame_count += 1
+            if self.frame_count >= self.frames_per_image:
+                self.frame_count = 0
+                self.index = (self.index + 1) % len(self.frames)
+        return frame
+
+    def close(self) -> None:
+        return
+
+
+class VideoFrameSource:
+    def __init__(self, path: Path, width: int, height: int, output_fps: int):
+        self.path = path
+        self.width = width
+        self.height = height
+        self.output_fps = max(1, output_fps)
+        self.capture = cv2.VideoCapture(str(path))
+        if not self.capture.isOpened():
+            self.capture.release()
+            raise RuntimeError(f"Could not open video: {path.name}")
+        source_fps = float(self.capture.get(cv2.CAP_PROP_FPS))
+        self.source_fps = (
+            source_fps
+            if math.isfinite(source_fps) and source_fps > 0
+            else float(self.output_fps)
+        )
+        self.accumulator = 0.0
+        self.current_frame = self._read_looped_frame()
+
+    def _reopen(self) -> None:
+        self.capture.release()
+        self.capture = cv2.VideoCapture(str(self.path))
+
+    def _read_looped_frame(self) -> np.ndarray:
+        ok, frame = self.capture.read()
+        if not ok:
+            self.capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ok, frame = self.capture.read()
+        if not ok:
+            self._reopen()
+            ok, frame = self.capture.read()
+        if not ok or frame is None:
+            raise RuntimeError(f"Could not read video frames: {self.path.name}")
+        return fit_video_frame(frame, self.width, self.height)
+
+    def next_frame(self) -> np.ndarray:
+        frame = self.current_frame
+        self.accumulator += self.source_fps
+        while self.accumulator >= self.output_fps:
+            self.current_frame = self._read_looped_frame()
+            self.accumulator -= self.output_fps
+        return frame
+
+    def close(self) -> None:
+        self.capture.release()
+
+
+def save_recent_media(paths: list[Path], media_type: str) -> None:
+    APP_SUPPORT.mkdir(parents=True, exist_ok=True)
+    temp = SETTINGS_PATH.with_suffix(".tmp")
+    temp.write_text(
+        json.dumps(
+            {"mediaType": media_type, "mediaPaths": [str(path.resolve()) for path in paths]},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    temp.replace(SETTINGS_PATH)
 
 
 class CameraWorker(threading.Thread):
     def __init__(
         self,
-        frames: list[np.ndarray],
+        paths: list[Path],
+        media_type: str,
         width: int,
         height: int,
         fps: int,
         interval: float,
     ) -> None:
         super().__init__(daemon=True)
-        self.frames = frames
+        self.paths = paths
+        self.media_type = media_type
         self.width = width
         self.height = height
         self.fps = fps
@@ -93,8 +202,14 @@ class CameraWorker(threading.Thread):
         self.device: str | None = None
 
     def run(self) -> None:
+        source: ImageFrameSource | VideoFrameSource | None = None
         try:
-            frames_per_image = max(1, int(self.interval * self.fps))
+            if self.media_type == "video":
+                source = VideoFrameSource(self.paths[0], self.width, self.height, self.fps)
+            else:
+                source = ImageFrameSource(
+                    self.paths, self.width, self.height, self.fps, self.interval
+                )
             with pyvirtualcam.Camera(
                 width=self.width,
                 height=self.height,
@@ -102,19 +217,15 @@ class CameraWorker(threading.Thread):
             ) as cam:
                 self.device = cam.device
                 self.ready.set()
-                idx = 0
-                count = 0
                 while not self.stop_event.is_set():
-                    cam.send(self.frames[idx])
+                    cam.send(source.next_frame())
                     cam.sleep_until_next_frame()
-                    if len(self.frames) > 1:
-                        count += 1
-                        if count >= frames_per_image:
-                            count = 0
-                            idx = (idx + 1) % len(self.frames)
         except Exception as exc:  # pyvirtualcam raises backend-specific errors.
             self.error = str(exc)
             self.ready.set()
+        finally:
+            if source:
+                source.close()
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -123,8 +234,9 @@ class CameraWorker(threading.Thread):
 @dataclass
 class AppState:
     lock: threading.Lock = field(default_factory=threading.Lock)
-    image_paths: list[Path] = field(default_factory=list)
-    image_names: list[str] = field(default_factory=list)
+    media_paths: list[Path] = field(default_factory=list)
+    media_names: list[str] = field(default_factory=list)
+    media_type: str = "images"
     worker: CameraWorker | None = None
     last_error: str | None = None
 
@@ -135,33 +247,39 @@ class AppState:
             return {
                 "running": running,
                 "device": device,
-                "imageCount": len(self.image_paths),
-                "imageNames": self.image_names[:8],
+                "mediaCount": len(self.media_paths),
+                "mediaNames": self.media_names[:8],
+                "mediaType": self.media_type,
+                "imageCount": len(self.media_paths) if self.media_type == "images" else 0,
+                "imageNames": self.media_names[:8] if self.media_type == "images" else [],
                 "error": self.last_error,
             }
 
-    def replace_images(self, paths: list[Path]) -> None:
+    def replace_media(self, paths: list[Path], media_type: str, persist: bool = False) -> None:
         with self.lock:
-            self.image_paths = paths
-            self.image_names = [p.name for p in paths]
+            self.media_paths = paths
+            self.media_names = [p.name for p in paths]
+            self.media_type = media_type
             self.last_error = None
+        if persist:
+            save_recent_media(paths, media_type)
 
-    def preview_image(self) -> Path | None:
+    def preview_media(self) -> tuple[Path | None, str]:
         with self.lock:
-            if not self.image_paths:
-                return None
-            return self.image_paths[0]
+            if not self.media_paths:
+                return None, self.media_type
+            return self.media_paths[0], self.media_type
 
     def start_camera(self, width: int, height: int, fps: int, interval: float) -> dict:
         with self.lock:
             if self.worker and self.worker.is_alive():
                 return {"ok": True, "message": "Camera is already running."}
-            paths = list(self.image_paths)
+            paths = list(self.media_paths)
+            media_type = self.media_type
         if not paths:
-            raise RuntimeError("Upload at least one image first.")
+            raise RuntimeError("Upload an image or video first.")
 
-        frames = load_frames(paths, width, height)
-        worker = CameraWorker(frames, width, height, fps, interval)
+        worker = CameraWorker(paths, media_type, width, height, fps, interval)
         with self.lock:
             self.worker = worker
             self.last_error = None
@@ -287,8 +405,80 @@ def load_default_image() -> None:
                 img.verify()
         except (OSError, UnidentifiedImageError):
             continue
-        STATE.replace_images([out])
+        STATE.replace_media([out], "images")
         return
+
+
+def is_readable_video(path: Path) -> bool:
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            return False
+        ok, frame = capture.read()
+        return bool(ok and frame is not None)
+    finally:
+        capture.release()
+
+
+def video_poster(path: Path) -> bytes:
+    capture = cv2.VideoCapture(str(path))
+    try:
+        ok, frame = capture.read()
+        if not ok or frame is None:
+            raise RuntimeError(f"Could not read video preview: {path.name}")
+        encoded, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
+        if not encoded:
+            raise RuntimeError(f"Could not create video preview: {path.name}")
+        return buffer.tobytes()
+    finally:
+        capture.release()
+
+
+def load_saved_media() -> bool:
+    try:
+        data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        media_type = data.get("mediaType")
+        paths = [Path(value) for value in data.get("mediaPaths", [])]
+    except (OSError, ValueError, TypeError):
+        return False
+
+    if media_type == "video":
+        if (
+            len(paths) == 1
+            and paths[0].is_file()
+            and paths[0].suffix.lower() in VIDEO_EXTS
+            and is_readable_video(paths[0])
+        ):
+            STATE.replace_media(paths, "video")
+            return True
+        return False
+
+    if media_type != "images" or not paths:
+        return False
+    readable: list[Path] = []
+    for path in paths:
+        if not path.is_file() or path.suffix.lower() not in IMAGE_EXTS:
+            continue
+        try:
+            with Image.open(path) as image:
+                image.verify()
+        except (OSError, UnidentifiedImageError):
+            continue
+        readable.append(path)
+    if not readable:
+        return False
+    STATE.replace_media(readable, "images")
+    return True
+
+
+def cleanup_old_uploads(keep: Path) -> None:
+    if not UPLOAD_ROOT.is_dir():
+        return
+    for child in UPLOAD_ROOT.iterdir():
+        if child == keep or child.name == "default":
+            continue
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
 
 
 HTML = r"""<!doctype html>
@@ -680,6 +870,12 @@ HTML = r"""<!doctype html>
       object-fit: contain;
       background: #000;
     }
+    .preview video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
     .empty {
       text-align: center;
       color: rgba(255, 255, 255, 0.72);
@@ -965,7 +1161,7 @@ HTML = r"""<!doctype html>
       <div class="logo" aria-hidden="true"></div>
       <div>
         <h1>Virtual Face Cam</h1>
-        <p>Send still images to OBS Virtual Camera.</p>
+        <p>Send photos or a looping video to OBS Virtual Camera.</p>
       </div>
     </section>
 
@@ -983,21 +1179,21 @@ HTML = r"""<!doctype html>
     <section class="control-card">
       <div class="section-title">
         <h2>Source</h2>
-        <span class="eyebrow" id="fileCount">No images selected</span>
+        <span class="eyebrow" id="fileCount">Saved source ready</span>
       </div>
       <div class="drop-row">
-        <input class="file-input" id="files" type="file" accept="image/*" multiple>
+        <input class="file-input" id="files" type="file" accept="image/*,video/*" multiple>
         <label class="drop-zone" for="files">
           <span class="icon">+</span>
-          <strong>Images</strong>
-          <small>Pick one or more files</small>
+          <strong>Photos / Video</strong>
+          <small>Photos or one looping video</small>
         </label>
 
         <input class="file-input" id="folder" type="file" accept="image/*" multiple webkitdirectory>
         <label class="drop-zone" for="folder">
           <span class="icon">/</span>
           <strong>Folder</strong>
-          <small>Cycle through a folder</small>
+          <small>Cycle through its photos</small>
         </label>
       </div>
       <p id="folderCount">No folder selected.</p>
@@ -1022,7 +1218,7 @@ HTML = r"""<!doctype html>
           <input id="fps" type="number" min="1" max="60" value="30">
         </div>
         <div>
-          <label class="input-label" for="interval">Interval</label>
+          <label class="input-label" for="interval">Photo interval</label>
           <input id="interval" type="number" min="0.5" max="60" step="0.5" value="3">
         </div>
       </div>
@@ -1037,9 +1233,9 @@ HTML = r"""<!doctype html>
     </section>
 
     <section class="loaded-card">
-      <span class="eyebrow">Loaded images</span>
+      <span class="eyebrow">Saved source</span>
       <strong id="loadedTitle">None</strong>
-      <div id="loaded" class="list">Upload images to prepare the camera feed.</div>
+      <div id="loaded" class="list">Your latest upload will return on the next launch.</div>
     </section>
 
     <section class="note-card">
@@ -1053,7 +1249,7 @@ HTML = r"""<!doctype html>
     <header class="stage-header">
       <div>
         <h2>Live Source</h2>
-        <p>Preview the exact image frame that will be sent to your virtual camera.</p>
+        <p>Preview the photo source or endlessly looping video sent to your virtual camera.</p>
       </div>
       <div class="pill-row">
         <span class="pill" id="statePill"><span class="dot" id="statusDot"></span><span id="stateLabel">Ready</span></span>
@@ -1065,8 +1261,8 @@ HTML = r"""<!doctype html>
       <div class="preview" id="preview">
         <div class="empty">
           <div class="empty-mark">+</div>
-          <strong>No image selected</strong>
-          <span>Choose an image or folder to prepare the camera source.</span>
+          <strong>No media selected</strong>
+          <span>Choose photos, a photo folder, or one video.</span>
         </div>
       </div>
     </div>
@@ -1123,9 +1319,11 @@ const mainToggle = document.getElementById("mainToggle");
 const dockQuit = document.getElementById("dockQuit");
 const dockStatus = document.getElementById("dockStatus");
 const settingInputs = ["width", "height", "fps", "interval"].map(id => document.getElementById(id));
+const intervalInput = document.getElementById("interval");
 let previewKey = "";
+let localPreviewUrl = "";
 let isQuitting = false;
-let latestState = { running: false, imageCount: 0 };
+let latestState = { running: false, mediaCount: 0, mediaType: "images" };
 
 function setStatus(message, tone = "idle") {
   const dotTone = tone === "running" ? "ready" : tone === "error" ? "error" : tone === "busy" ? "busy" : "";
@@ -1145,7 +1343,7 @@ async function api(path, options = {}) {
 
 files.addEventListener("change", () => {
   const list = Array.from(files.files || []);
-  fileCount.textContent = list.length ? `${list.length} selected` : "No images selected";
+  fileCount.textContent = list.length ? selectionLabel(list) : "Saved source ready";
   if (list.length) {
     folder.value = "";
     folderCount.textContent = "No folder selected.";
@@ -1174,19 +1372,20 @@ function syncMetrics() {
 
 function applyControls(data) {
   latestState = data;
-  const hasImages = Boolean(data.imageCount);
+  const hasMedia = Boolean(data.mediaCount);
   const running = Boolean(data.running);
   uploadBtn.disabled = Boolean(data.running);
-  startBtn.disabled = Boolean(data.running) || !hasImages;
+  startBtn.disabled = Boolean(data.running) || !hasMedia;
   stopBtn.disabled = !data.running;
   settingInputs.forEach(input => input.disabled = Boolean(data.running));
-  cameraValue.textContent = running ? "Live to OBS" : hasImages ? "Ready" : "Waiting";
+  intervalInput.disabled = Boolean(data.running) || data.mediaType === "video";
+  cameraValue.textContent = running ? "Live to OBS" : hasMedia ? "Ready" : "Waiting";
   startBtn.textContent = running ? "Running" : "Start";
   stopBtn.textContent = running ? "Stop Live" : "Stop";
-  mainToggle.disabled = !running && !hasImages;
+  mainToggle.disabled = !running && !hasMedia;
   mainToggle.textContent = running ? "Stop Live" : "Start Live";
   mainToggle.className = running ? "danger big-action" : "primary big-action";
-  dockStatus.textContent = running ? "Live to OBS Virtual Camera" : hasImages ? "Ready to start" : "Choose an image first";
+  dockStatus.textContent = running ? "Live to OBS Virtual Camera" : hasMedia ? "Ready to start" : "Choose photos or a video";
 }
 
 function selectedFiles() {
@@ -1194,44 +1393,85 @@ function selectedFiles() {
   return direct.length ? direct : Array.from(folder.files || []);
 }
 
-function showPreview(list) {
-  if (!list[0]) return;
-  const url = URL.createObjectURL(list[0]);
-  previewKey = `local:${list.map(file => file.name).join("|")}`;
-  preview.innerHTML = "";
-  const img = document.createElement("img");
-  img.onload = () => URL.revokeObjectURL(url);
-  img.src = url;
-  preview.appendChild(img);
-  sourceLabel.textContent = list.length === 1 ? list[0].name : `${list.length} images`;
+function isVideoFile(file) {
+  return file.type.startsWith("video/") || /\.(mp4|mov|m4v|avi|mkv|webm)$/i.test(file.name);
 }
 
-function showServerPreview(names) {
-  const key = `server:${names.join("|")}`;
+function selectionLabel(list) {
+  if (list.length === 1 && isVideoFile(list[0])) return "1 looping video";
+  return `${list.length} photo${list.length === 1 ? "" : "s"} selected`;
+}
+
+function showPreview(list) {
+  if (!list[0]) return;
+  if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
+  const url = URL.createObjectURL(list[0]);
+  localPreviewUrl = url;
+  previewKey = `local:${list.map(file => file.name).join("|")}`;
+  preview.innerHTML = "";
+  if (isVideoFile(list[0])) {
+    const video = document.createElement("video");
+    video.src = url;
+    video.autoplay = true;
+    video.loop = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadeddata = () => video.play().catch(() => {});
+    preview.appendChild(video);
+  } else {
+    const img = document.createElement("img");
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      if (localPreviewUrl === url) localPreviewUrl = "";
+    };
+    img.src = url;
+    preview.appendChild(img);
+  }
+  sourceLabel.textContent = list.length === 1 ? list[0].name : `${list.length} photos`;
+}
+
+function showServerPreview(names, mediaType) {
+  const key = `server:${mediaType}:${names.join("|")}`;
   if (!names.length || previewKey === key) return;
+  if (localPreviewUrl) {
+    URL.revokeObjectURL(localPreviewUrl);
+    localPreviewUrl = "";
+  }
   previewKey = key;
   preview.innerHTML = "";
-  const img = document.createElement("img");
-  img.src = `/api/preview?key=${encodeURIComponent(key)}&t=${Date.now()}`;
-  preview.appendChild(img);
-  sourceLabel.textContent = names.length === 1 ? names[0] : `${names.length} images`;
+  if (mediaType === "video") {
+    const video = document.createElement("video");
+    video.src = `/api/media?key=${encodeURIComponent(key)}`;
+    video.poster = `/api/video-poster?key=${encodeURIComponent(key)}`;
+    video.autoplay = true;
+    video.loop = true;
+    video.muted = true;
+    video.playsInline = true;
+    preview.appendChild(video);
+  } else {
+    const img = document.createElement("img");
+    img.src = `/api/preview?key=${encodeURIComponent(key)}&t=${Date.now()}`;
+    preview.appendChild(img);
+  }
+  sourceLabel.textContent = names.length === 1 ? names[0] : `${names.length} photos`;
 }
 
 document.getElementById("upload").addEventListener("click", async () => {
   const list = selectedFiles();
   if (!list.length) {
-    setStatus("Choose one or more images first.", "error");
+    setStatus("Choose photos or one video first.", "error");
     return;
   }
   const form = new FormData();
   list.forEach(file => form.append("files", file, file.name));
-  setStatus("Uploading images...", "busy");
+  setStatus("Saving media for this and future launches...", "busy");
   try {
     const data = await api("/api/upload", { method: "POST", body: form });
-    loadedTitle.textContent = `${data.count} image(s) ready`;
+    loadedTitle.textContent = data.mediaType === "video" ? "Looping video ready" : `${data.count} photo(s) ready`;
     loaded.textContent = data.names.join(", ");
-    applyControls({ running: false, imageCount: data.count });
-    setStatus(`${data.count} image(s) loaded.`);
+    applyControls({ running: false, mediaCount: data.count, mediaType: data.mediaType });
+    showServerPreview(data.names, data.mediaType);
+    setStatus(data.mediaType === "video" ? "Video saved and ready to loop." : `${data.count} photo(s) saved.`);
   } catch (err) {
     setStatus(err.message, "error");
   }
@@ -1321,20 +1561,24 @@ async function refresh() {
   try {
     const data = await api("/api/status");
     applyControls(data);
-    loadedTitle.textContent = data.imageCount ? `${data.imageCount} image(s) ready` : "None";
-    loaded.textContent = data.imageCount ? data.imageNames.join(", ") : "Upload images to prepare the camera feed.";
-    if (data.imageCount && !selectedFiles().length) {
-      fileCount.textContent = data.imageNames[0] === "default_face.jpg" ? "Default ready" : `${data.imageCount} ready`;
-      showServerPreview(data.imageNames);
-    } else if (!data.imageCount && !selectedFiles().length) {
-      fileCount.textContent = "No images selected";
+    loadedTitle.textContent = data.mediaCount
+      ? data.mediaType === "video" ? "Looping video ready" : `${data.mediaCount} photo(s) ready`
+      : "None";
+    loaded.textContent = data.mediaCount ? data.mediaNames.join(", ") : "Upload photos or a video to prepare the camera feed.";
+    if (data.mediaCount && !selectedFiles().length) {
+      fileCount.textContent = data.mediaNames[0] === "default_face.jpg"
+        ? "Default ready"
+        : data.mediaType === "video" ? "Recent video restored" : `${data.mediaCount} recent photo(s)`;
+      showServerPreview(data.mediaNames, data.mediaType);
+    } else if (!data.mediaCount && !selectedFiles().length) {
+      fileCount.textContent = "No media selected";
     }
     if (data.running) {
       setStatus(`Live: sending frames to ${data.device || "OBS Virtual Camera"}.`, "running");
     } else if (data.error) {
       setStatus(data.error, "error");
-    } else if (data.imageCount) {
-      setStatus(`${data.imageCount} image(s) ready. Press Start to send.`);
+    } else if (data.mediaCount) {
+      setStatus(data.mediaType === "video" ? "Looping video ready. Press Start to send." : `${data.mediaCount} photo(s) ready. Press Start to send.`);
     } else {
       setStatus("Stopped");
     }
@@ -1355,7 +1599,7 @@ refresh();
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "VirtualFaceCamMac/0.1"
+    server_version = "VirtualFaceCamMac/0.2"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -1378,6 +1622,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/preview":
             SHUTDOWN.mark_active(self.server)
             self.send_preview()
+            return
+        if path == "/api/media":
+            SHUTDOWN.mark_active(self.server)
+            self.send_media()
+            return
+        if path == "/api/video-poster":
+            SHUTDOWN.mark_active(self.server)
+            self.send_video_poster()
             return
         if path in {"/favicon.svg", "/favicon.ico"}:
             self.send_favicon()
@@ -1426,16 +1678,17 @@ class Handler(BaseHTTPRequestHandler):
         )
 
         STATE.stop_camera()
-        shutil.rmtree(UPLOAD_ROOT, ignore_errors=True)
-        session_dir = UPLOAD_ROOT / str(int(time.time()))
+        session_dir = UPLOAD_ROOT / str(time.time_ns())
         session_dir.mkdir(parents=True, exist_ok=True)
 
-        saved: list[Path] = []
+        saved_images: list[Path] = []
+        saved_videos: list[Path] = []
         for part in message.iter_parts():
             filename = part.get_filename()
             if not filename:
                 continue
-            if Path(filename).suffix.lower() not in IMAGE_EXTS:
+            extension = Path(filename).suffix.lower()
+            if extension not in MEDIA_EXTS:
                 continue
             data = part.get_payload(decode=True)
             if not data:
@@ -1449,18 +1702,43 @@ class Handler(BaseHTTPRequestHandler):
                 counter += 1
             out.write_bytes(data)
 
+            if extension in VIDEO_EXTS:
+                if is_readable_video(out):
+                    saved_videos.append(out)
+                else:
+                    out.unlink(missing_ok=True)
+                continue
             try:
                 with Image.open(out) as img:
                     img.verify()
             except (OSError, UnidentifiedImageError):
                 out.unlink(missing_ok=True)
                 continue
-            saved.append(out)
+            saved_images.append(out)
 
-        if not saved:
-            raise RuntimeError("No supported image files were uploaded.")
-        STATE.replace_images(saved)
-        self.send_json({"ok": True, "count": len(saved), "names": [p.name for p in saved]})
+        if saved_videos and (saved_images or len(saved_videos) > 1):
+            shutil.rmtree(session_dir, ignore_errors=True)
+            raise RuntimeError("Choose one video by itself, or choose one or more photos.")
+        if saved_videos:
+            saved = saved_videos
+            media_type = "video"
+        elif saved_images:
+            saved = saved_images
+            media_type = "images"
+        else:
+            shutil.rmtree(session_dir, ignore_errors=True)
+            raise RuntimeError("No supported photo or video files were uploaded.")
+
+        STATE.replace_media(saved, media_type, persist=True)
+        cleanup_old_uploads(session_dir)
+        self.send_json(
+            {
+                "ok": True,
+                "count": len(saved),
+                "names": [path.name for path in saved],
+                "mediaType": media_type,
+            }
+        )
 
     def handle_start(self) -> None:
         params = self.read_json()
@@ -1477,14 +1755,82 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def send_preview(self) -> None:
-        path = STATE.preview_image()
-        if path is None or not path.is_file():
+        path, media_type = STATE.preview_media()
+        if path is None or not path.is_file() or media_type != "images":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         body = path.read_bytes()
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_media(self) -> None:
+        path, media_type = STATE.preview_media()
+        if path is None or not path.is_file() or media_type != "video":
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+
+        size = path.stat().st_size
+        start = 0
+        end = max(0, size - 1)
+        status = HTTPStatus.OK
+        range_header = self.headers.get("Range")
+        if range_header:
+            match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
+            if not match:
+                self.send_error(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                return
+            start_text, end_text = match.groups()
+            if start_text:
+                start = int(start_text)
+                if end_text:
+                    end = min(int(end_text), size - 1)
+            elif end_text:
+                suffix_length = min(int(end_text), size)
+                start = size - suffix_length
+            if start >= size or start > end:
+                self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
+            status = HTTPStatus.PARTIAL_CONTENT
+
+        content_length = end - start + 1
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(content_length))
+        if status == HTTPStatus.PARTIAL_CONTENT:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+
+        remaining = content_length
+        try:
+            with path.open("rb") as source:
+                source.seek(start)
+                while remaining:
+                    chunk = source.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
+    def send_video_poster(self) -> None:
+        path, media_type = STATE.preview_media()
+        if path is None or not path.is_file() or media_type != "video":
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        body = video_poster(path)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/jpeg")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -1542,7 +1888,8 @@ def open_browser(url: str) -> None:
 def main() -> None:
     args = parse_args()
     APP_SUPPORT.mkdir(parents=True, exist_ok=True)
-    load_default_image()
+    if not load_saved_media():
+        load_default_image()
     try:
         server = ThreadingHTTPServer((args.host, args.port), Handler)
     except OSError:

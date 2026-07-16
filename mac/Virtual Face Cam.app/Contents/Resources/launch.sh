@@ -75,7 +75,7 @@ fi
 
 "$VENV/bin/python" -m pip install --upgrade pip >/dev/null || fail "Could not update pip."
 
-if ! "$VENV/bin/python" -c "import pyvirtualcam, numpy, PIL" >/dev/null 2>&1; then
+if ! "$VENV/bin/python" -c "import pyvirtualcam, numpy, PIL, cv2" >/dev/null 2>&1; then
     echo "Installing Python packages..."
     "$VENV/bin/python" -m pip install -r "$APP_DIR/requirements.txt" || fail "Could not install Python packages."
 fi

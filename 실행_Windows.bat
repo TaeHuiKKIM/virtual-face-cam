@@ -28,7 +28,7 @@ if errorlevel 1 (
 )
 
 REM 의존성 설치 여부 확인
-python -c "import pyvirtualcam, numpy, PIL" >nul 2>nul
+python -c "import pyvirtualcam, numpy, PIL, cv2" >nul 2>nul
 if errorlevel 1 (
     echo 필요한 패키지를 설치합니다. 잠시만 기다려 주세요...
     python -m pip install -r requirements.txt
