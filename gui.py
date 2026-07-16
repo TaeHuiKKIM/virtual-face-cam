@@ -47,7 +47,13 @@ def enable_hidpi():
 
 from PIL import Image, ImageTk
 
-from virtual_cam import load_frames, IMAGE_EXTS
+from virtual_cam import (
+    VIDEO_EXTS,
+    create_frame_source,
+    load_recent_path,
+    preview_image,
+    save_recent_path,
+)
 
 # 색상 팔레트
 BG = "#1e1f2b"
@@ -88,10 +94,13 @@ class App:
         self._setup_style()
         self._build()
 
-        # 기본 이미지 자동 로드
+        # 최근 선택 항목을 먼저 복원하고, 없거나 삭제됐으면 기본 이미지를 사용한다.
+        recent = load_recent_path()
         default = resource_path("assets/default_face.jpg")
-        if default.exists():
-            self._set_path(str(default))
+        if recent:
+            self._set_path(str(recent), persist=False, restored=True)
+        elif default.exists():
+            self._set_path(str(default), persist=False)
 
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -125,7 +134,7 @@ class App:
 
         ttk.Label(wrap, text="🎥  Virtual Face Cam", style="Title.TLabel")\
             .grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Label(wrap, text="이미지를 가상 웹캠으로 출력합니다",
+        ttk.Label(wrap, text="사진 또는 반복 영상을 가상 웹캠으로 출력합니다",
                   foreground=MUTED).grid(row=1, column=0, columnspan=2,
                                          sticky="w", pady=(2, 14))
 
@@ -140,7 +149,7 @@ class App:
         # 파일 선택 버튼
         btns = ttk.Frame(wrap)
         btns.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-        self._flat_button(btns, "🖼  이미지 선택", self.pick_file)\
+        self._flat_button(btns, "사진 / 영상 선택", self.pick_file)\
             .grid(row=0, column=0, sticky="ew", padx=(0, 5))
         self._flat_button(btns, "📁  폴더 선택", self.pick_dir)\
             .grid(row=0, column=1, sticky="ew", padx=(5, 0))
@@ -190,46 +199,59 @@ class App:
     def _draw_placeholder(self):
         self.preview.delete("all")
         self.preview.create_text(self.pv // 2, self.pv // 2,
-                                 text="미리보기\n\n이미지를 선택하세요",
+                                 text="미리보기\n\n사진 또는 영상을 선택하세요",
                                  fill=MUTED, font=("Segoe UI", 11),
                                  justify="center")
 
     def _show_thumb(self, path):
         p = Path(path)
-        if p.is_dir():
-            imgs = sorted(f for f in p.iterdir() if f.suffix.lower() in IMAGE_EXTS)
-            if not imgs:
-                self._draw_placeholder()
-                return
-            p = imgs[0]
         try:
-            im = Image.open(p)
+            im = preview_image(p)
             im.thumbnail((self.pv, self.pv), Image.LANCZOS)
             self._thumb = ImageTk.PhotoImage(im)
             self.preview.delete("all")
             self.preview.create_image(self.pv // 2, self.pv // 2,
                                       image=self._thumb)
+            if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
+                self.preview.create_rectangle(
+                    12, self.pv - 42, 132, self.pv - 12,
+                    fill="#171923", outline="")
+                self.preview.create_text(
+                    72, self.pv - 27, text="VIDEO · LOOP",
+                    fill=TEXT, font=("Segoe UI Semibold", 9))
         except Exception:
             self._draw_placeholder()
 
     def pick_file(self):
         f = filedialog.askopenfilename(
-            filetypes=[("이미지", "*.jpg *.jpeg *.png *.bmp *.webp"),
+            filetypes=[("사진 및 영상", "*.jpg *.jpeg *.png *.bmp *.webp *.mp4 *.mov *.m4v *.avi *.mkv *.webm"),
+                       ("영상", "*.mp4 *.mov *.m4v *.avi *.mkv *.webm"),
+                       ("이미지", "*.jpg *.jpeg *.png *.bmp *.webp"),
                        ("모든 파일", "*.*")])
         if f:
-            self._set_path(f)
+            self._set_path(f, persist=True)
 
     def pick_dir(self):
         d = filedialog.askdirectory()
         if d:
-            self._set_path(d, is_dir=True)
+            self._set_path(d, is_dir=True, persist=True)
 
-    def _set_path(self, path, is_dir=False):
+    def _set_path(self, path, is_dir=None, persist=False, restored=False):
+        media_path = Path(path)
+        if is_dir is None:
+            is_dir = media_path.is_dir()
         self.path.set(path)
-        name = Path(path).name
-        self.path_lbl.config(text=("📁 " if is_dir else "🖼 ") + name,
+        is_video = media_path.is_file() and media_path.suffix.lower() in VIDEO_EXTS
+        prefix = "폴더 · " if is_dir else "반복 영상 · " if is_video else "사진 · "
+        suffix = " (최근 항목 복원됨)" if restored else ""
+        self.path_lbl.config(text=prefix + media_path.name + suffix,
                              foreground=TEXT)
         self._show_thumb(path)
+        if persist:
+            try:
+                save_recent_path(path)
+            except OSError:
+                pass
 
     def toggle(self):
         self.stop() if self.running else self.start()
@@ -237,7 +259,7 @@ class App:
     def start(self):
         path = self.path.get().strip()
         if not path or not Path(path).exists():
-            messagebox.showerror("오류", "유효한 이미지 파일이나 폴더를 선택하세요.")
+            messagebox.showerror("오류", "유효한 사진, 영상 또는 이미지 폴더를 선택하세요.")
             return
         self.running = True
         self.error = None
@@ -256,24 +278,21 @@ class App:
 
     def _run(self, path):
         import pyvirtualcam
+        source = None
         try:
             w, h, fps = self.width.get(), self.height.get(), self.fps.get()
-            frames = load_frames(path, w, h)
-            frames_per_image = max(1, int(self.interval.get() * fps))
+            source = create_frame_source(path, w, h, fps, self.interval.get())
             with pyvirtualcam.Camera(width=w, height=h, fps=fps) as cam:
-                idx, count = 0, 0
                 while self.running:
-                    cam.send(frames[idx])
+                    cam.send(source.next_frame())
                     cam.sleep_until_next_frame()
-                    if len(frames) > 1:
-                        count += 1
-                        if count >= frames_per_image:
-                            count = 0
-                            idx = (idx + 1) % len(frames)
         except Exception as e:
             self.error = str(e)
             self.running = False
             self.root.after(0, self._show_error)
+        finally:
+            if source:
+                source.close()
 
     def _show_error(self):
         self.stop()

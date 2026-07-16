@@ -64,7 +64,7 @@ fi
 
 "$VENV/bin/python" -m pip install --upgrade pip >/dev/null || pause_and_exit
 
-if ! "$VENV/bin/python" -c "import pyvirtualcam, numpy, PIL, tkinter" >/dev/null 2>&1; then
+if ! "$VENV/bin/python" -c "import pyvirtualcam, numpy, PIL, cv2, tkinter" >/dev/null 2>&1; then
     echo "필요한 패키지를 설치합니다. 잠시만 기다려 주세요..."
     "$VENV/bin/python" -m pip install -r requirements.txt || pause_and_exit
 fi
