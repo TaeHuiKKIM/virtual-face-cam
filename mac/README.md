@@ -47,6 +47,10 @@ Finder에서 `Virtual Face Cam.app`을 오른쪽 클릭한 뒤 **열기**를 누
 5. **Start Live**를 누릅니다.
 6. Zoom, Teams, Chrome 같은 앱에서 `OBS Virtual Camera`를 선택합니다.
 
+파일을 선택한 직후 보이는 화면은 브라우저 미리보기입니다. 실제 가상카메라에
+적용하려면 반드시 **Upload**를 한 번 눌러야 합니다. 선택만 한 상태에서는
+**Start Live**가 비활성화됩니다.
+
 영상은 끝까지 재생되면 자동으로 처음부터 무한 반복됩니다. 사진 폴더는
 **Photo interval**에 적힌 초마다 다음 사진으로 넘어갑니다.
 

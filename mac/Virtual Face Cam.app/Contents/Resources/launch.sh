@@ -7,6 +7,9 @@ VENV="$APP_SUPPORT/.venv"
 LOG="$APP_SUPPORT/launch.log"
 
 mkdir -p "$APP_SUPPORT"
+if [ -f "$LOG" ] && [ "$(stat -f %z "$LOG" 2>/dev/null || printf '0')" -gt 5242880 ]; then
+    mv "$LOG" "$APP_SUPPORT/launch-$(date +%Y%m%d-%H%M%S).log"
+fi
 exec >>"$LOG" 2>&1
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/Library/Frameworks/Python.framework/Versions/Current/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"

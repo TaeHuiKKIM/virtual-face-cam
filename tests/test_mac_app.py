@@ -20,6 +20,18 @@ def multipart_body(path: Path) -> tuple[bytes, str]:
 
 
 class MacAppTests(unittest.TestCase):
+    def test_frontend_requires_upload_before_selected_media_can_start(self):
+        self.assertIn("let pendingSelection = false;", mac_app.HTML)
+        self.assertIn(
+            "const hasMedia = Boolean(data.mediaCount) && !uploadPending;",
+            mac_app.HTML,
+        )
+        self.assertIn("startBtn.disabled = Boolean(data.running) || !hasMedia;", mac_app.HTML)
+        self.assertIn(
+            "Click Upload before starting the selected source.",
+            mac_app.HTML,
+        )
+
     def test_video_upload_range_stream_and_restart_restore(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

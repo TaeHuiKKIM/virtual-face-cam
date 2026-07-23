@@ -1323,6 +1323,7 @@ const intervalInput = document.getElementById("interval");
 let previewKey = "";
 let localPreviewUrl = "";
 let isQuitting = false;
+let pendingSelection = false;
 let latestState = { running: false, mediaCount: 0, mediaType: "images" };
 
 function setStatus(message, tone = "idle") {
@@ -1343,22 +1344,28 @@ async function api(path, options = {}) {
 
 files.addEventListener("change", () => {
   const list = Array.from(files.files || []);
+  pendingSelection = Boolean(list.length);
   fileCount.textContent = list.length ? selectionLabel(list) : "Saved source ready";
   if (list.length) {
     folder.value = "";
     folderCount.textContent = "No folder selected.";
   }
   showPreview(list);
+  applyControls(latestState);
+  if (list.length) setStatus("Preview only. Click Upload to use this source on your camera.", "busy");
 });
 
 folder.addEventListener("change", () => {
   const list = Array.from(folder.files || []);
+  pendingSelection = Boolean(list.length);
   folderCount.textContent = list.length ? `${list.length} selected from folder` : "No folder selected.";
   if (list.length) {
     files.value = "";
     fileCount.textContent = `${list.length} selected`;
   }
   showPreview(list);
+  applyControls(latestState);
+  if (list.length) setStatus("Preview only. Click Upload to use this source on your camera.", "busy");
 });
 
 ["width", "height", "fps"].forEach(id => {
@@ -1372,20 +1379,25 @@ function syncMetrics() {
 
 function applyControls(data) {
   latestState = data;
-  const hasMedia = Boolean(data.mediaCount);
+  const uploadPending = pendingSelection && Boolean(selectedFiles().length);
+  const hasMedia = Boolean(data.mediaCount) && !uploadPending;
   const running = Boolean(data.running);
-  uploadBtn.disabled = Boolean(data.running);
+  uploadBtn.disabled = running || !uploadPending;
   startBtn.disabled = Boolean(data.running) || !hasMedia;
   stopBtn.disabled = !data.running;
   settingInputs.forEach(input => input.disabled = Boolean(data.running));
   intervalInput.disabled = Boolean(data.running) || data.mediaType === "video";
-  cameraValue.textContent = running ? "Live to OBS" : hasMedia ? "Ready" : "Waiting";
+  cameraValue.textContent = running ? "Live to OBS" : uploadPending ? "Upload first" : hasMedia ? "Ready" : "Waiting";
   startBtn.textContent = running ? "Running" : "Start";
   stopBtn.textContent = running ? "Stop Live" : "Stop";
   mainToggle.disabled = !running && !hasMedia;
   mainToggle.textContent = running ? "Stop Live" : "Start Live";
   mainToggle.className = running ? "danger big-action" : "primary big-action";
-  dockStatus.textContent = running ? "Live to OBS Virtual Camera" : hasMedia ? "Ready to start" : "Choose photos or a video";
+  dockStatus.textContent = running
+    ? "Live to OBS Virtual Camera"
+    : uploadPending ? "Upload selected source first"
+    : hasMedia ? "Ready to start"
+    : "Choose photos or a video";
 }
 
 function selectedFiles() {
@@ -1467,6 +1479,10 @@ document.getElementById("upload").addEventListener("click", async () => {
   setStatus("Saving media for this and future launches...", "busy");
   try {
     const data = await api("/api/upload", { method: "POST", body: form });
+    files.value = "";
+    folder.value = "";
+    pendingSelection = false;
+    folderCount.textContent = "No folder selected.";
     loadedTitle.textContent = data.mediaType === "video" ? "Looping video ready" : `${data.count} photo(s) ready`;
     loaded.textContent = data.names.join(", ");
     applyControls({ running: false, mediaCount: data.count, mediaType: data.mediaType });
@@ -1478,6 +1494,10 @@ document.getElementById("upload").addEventListener("click", async () => {
 });
 
 async function startCamera() {
+  if (pendingSelection && selectedFiles().length) {
+    setStatus("Click Upload before starting the selected source.", "error");
+    return;
+  }
   const body = {
     width: Number(document.getElementById("width").value),
     height: Number(document.getElementById("height").value),
@@ -1565,15 +1585,17 @@ async function refresh() {
       ? data.mediaType === "video" ? "Looping video ready" : `${data.mediaCount} photo(s) ready`
       : "None";
     loaded.textContent = data.mediaCount ? data.mediaNames.join(", ") : "Upload photos or a video to prepare the camera feed.";
-    if (data.mediaCount && !selectedFiles().length) {
+    if (data.mediaCount && !pendingSelection) {
       fileCount.textContent = data.mediaNames[0] === "default_face.jpg"
         ? "Default ready"
         : data.mediaType === "video" ? "Recent video restored" : `${data.mediaCount} recent photo(s)`;
       showServerPreview(data.mediaNames, data.mediaType);
-    } else if (!data.mediaCount && !selectedFiles().length) {
+    } else if (!data.mediaCount && !pendingSelection) {
       fileCount.textContent = "No media selected";
     }
-    if (data.running) {
+    if (pendingSelection) {
+      setStatus("Preview only. Click Upload to use this source on your camera.", "busy");
+    } else if (data.running) {
       setStatus(`Live: sending frames to ${data.device || "OBS Virtual Camera"}.`, "running");
     } else if (data.error) {
       setStatus(data.error, "error");
